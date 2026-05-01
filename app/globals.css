@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* Custom design tokens — warm charcoal + fire-orange accent */
+@theme {
+  --color-charcoal: #1a1612;
+  --color-surface: #231f1b;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  background-color: #1a1612;
+  color: #fff;
+  min-height: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 999px; }

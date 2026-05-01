@@ -1,0 +1,22 @@
+// Three sample phrases per language for the "try it" dropdown (Phase 5)
+export const SAMPLE_PHRASES: Record<string, string[]> = {
+  eng: ['The quick brown fox jumps over the lazy dog.', "It's raining cats and dogs today.", 'Break a leg at the performance tonight!'],
+  fra: ['Le chat est sur le tapis.', "Il pleut des cordes dehors.", 'Les carottes sont cuites.'],
+  deu: ['Ich lerne jeden Tag etwas Neues.', 'Das ist nicht mein Bier.', 'Morgenstund hat Gold im Mund.'],
+  spa: ['El sol brilla con fuerza hoy.', 'Está lloviendo a cántaros.', 'No hay mal que por bien no venga.'],
+  ita: ['La vita è bella e piena di sorprese.', 'In bocca al lupo per domani!', 'Tra moglie e marito non mettere il dito.'],
+  por: ['A vida é cheia de surpresas.', 'Está chovendo canivetes lá fora.', 'Quem não arrisca não petisca.'],
+  rus: ['Жизнь прекрасна и удивительна.', 'Без труда не вытащишь и рыбку из пруда.', 'Утро вечера мудренее.'],
+  bul: ['Животът е пълен с изненади.', 'Без труд нищо не се постига.', 'Правата дума на правото място.'],
+  pol: ['Życie jest pełne niespodzianek.', 'Nie ma tego złego, co by na dobre nie wyszło.', 'Co nagle, to po diable.'],
+  tur: ['Hayat sürprizlerle doludur.', 'Acele işe şeytan karışır.', 'Damlaya damlaya göl olur.'],
+  ell: ['Η ζωή είναι γεμάτη εκπλήξεις.', 'Η αρχή είναι το ήμισυ του παντός.', 'Πολλά λόγια φτώχεια.'],
+  ron: ['Viața este plină de surprize.', 'Omul sfințește locul.', 'Vorba dulce mult aduce.'],
+  ces: ['Život je plný překvapení.', 'Bez práce nejsou koláče.', 'Ranní ptáče dál doskáče.'],
+  ukr: ['Життя повне несподіванок.', 'Без праці не виловиш і рибки зі ставка.', 'Вранці мудріше вечора.'],
+  jpn: ['人生は驚きに満ちています。', '七転び八起き。', '塵も積もれば山となる。'],
+  cmn: ['生活充满了惊喜。', '不入虎穴，焉得虎子。', '一寸光阴一寸金。'],
+  ara: ['الحياة مليئة بالمفاجآت.', 'من جدّ وجد.', 'الصبر مفتاح الفرج.'],
+  hin: ['जीवन आश्चर्यों से भरा है।', 'जहाँ चाह वहाँ राह।', 'करत करत अभ्यास के जड़मति होत सुजान।'],
+  kor: ['삶은 놀라움으로 가득 차 있습니다.', '시작이 반이다.', '가는 말이 고와야 오는 말이 곱다.'],
+}

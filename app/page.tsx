@@ -1,0 +1,152 @@
+'use client'
+
+import { useReducer } from 'react'
+import { ExternalLink } from 'lucide-react'
+import TextInput from '@/components/TextInput'
+import TargetLanguagePicker from '@/components/TargetLanguagePicker'
+import DetectionResult from '@/components/DetectionResult'
+import type { AppState, DetectApiResponse, TranslateApiResponse } from '@/lib/types'
+
+type Action =
+  | { type: 'SET_TARGET'; lang: string }
+  | { type: 'DETECTING' }
+  | { type: 'DETECTED'; detection: DetectApiResponse }
+  | { type: 'TRANSLATING' }
+  | { type: 'TRANSLATED'; translation: TranslateApiResponse }
+  | { type: 'ERROR'; error: string }
+
+const initial: AppState = {
+  inputText: '',
+  targetLangIso3: 'eng',
+  detection: null,
+  translation: null,
+  isDetecting: false,
+  isTranslating: false,
+  error: null,
+}
+
+function reducer(state: AppState, action: Action): AppState {
+  switch (action.type) {
+    case 'SET_TARGET':  return { ...state, targetLangIso3: action.lang }
+    case 'DETECTING':   return { ...state, isDetecting: true, error: null, detection: null, translation: null }
+    case 'DETECTED':    return { ...state, isDetecting: false, detection: action.detection }
+    case 'TRANSLATING': return { ...state, isTranslating: true }
+    case 'TRANSLATED':  return { ...state, isTranslating: false, translation: action.translation }
+    case 'ERROR':       return { ...state, isDetecting: false, isTranslating: false, error: action.error }
+    default:            return state
+  }
+}
+
+export default function Home() {
+  const [state, dispatch] = useReducer(reducer, initial)
+
+  async function handleDetect(text: string) {
+    dispatch({ type: 'DETECTING' })
+
+    // Step 1 — detect language
+    let detection: DetectApiResponse
+    try {
+      const res = await fetch('/api/detect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      const data = (await res.json()) as DetectApiResponse & { error?: string }
+      if (!res.ok) {
+        dispatch({ type: 'ERROR', error: data.error ?? 'Detection failed' })
+        return
+      }
+      detection = data
+      dispatch({ type: 'DETECTED', detection })
+    } catch {
+      dispatch({ type: 'ERROR', error: 'Network error during detection' })
+      return
+    }
+
+    // Step 2 — translate (skip if same language)
+    const sourceLang = detection.best.language.iso3
+    if (sourceLang === state.targetLangIso3) {
+      dispatch({ type: 'TRANSLATED', translation: { meaningAware: text } })
+      return
+    }
+
+    dispatch({ type: 'TRANSLATING' })
+    try {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, sourceLang, targetLang: state.targetLangIso3 }),
+      })
+      const data = (await res.json()) as TranslateApiResponse & { error?: string }
+      if (!res.ok) {
+        dispatch({ type: 'ERROR', error: data.error ?? 'Translation failed' })
+        return
+      }
+      dispatch({ type: 'TRANSLATED', translation: data })
+    } catch {
+      dispatch({ type: 'ERROR', error: 'Network error during translation' })
+    }
+  }
+
+  const isLoading = state.isDetecting || state.isTranslating
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      {/* Header */}
+      <header className="border-b px-6 py-4" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+        <div className="mx-auto flex max-w-2xl items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-white">
+              Lingua
+              <span style={{ background: 'linear-gradient(to right, #ff6b35, #f7931e)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                Lens
+              </span>
+            </h1>
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>ML-powered language detection &amp; translation</p>
+          </div>
+          <a
+            href="https://github.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition"
+            style={{ color: 'rgba(255,255,255,0.5)' }}
+          >
+            <ExternalLink className="h-4 w-4" />
+            GitHub
+          </a>
+        </div>
+      </header>
+
+      {/* Main */}
+      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
+        <div className="flex flex-col gap-6">
+          <TargetLanguagePicker
+            value={state.targetLangIso3}
+            onChange={lang => dispatch({ type: 'SET_TARGET', lang })}
+          />
+
+          <TextInput onSubmit={handleDetect} isLoading={isLoading} />
+
+          {state.error && (
+            <div className="rounded-xl px-4 py-3 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5' }}>
+              {state.error}
+            </div>
+          )}
+
+          {state.detection && (
+            <DetectionResult
+              detection={state.detection}
+              translation={state.translation}
+              isTranslating={state.isTranslating}
+              targetLangIso3={state.targetLangIso3}
+            />
+          )}
+        </div>
+      </main>
+
+      <footer className="border-t py-4 text-center text-xs" style={{ borderColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.25)' }}>
+        University ML Project · TF-IDF char n-grams · Logistic Regression · 20 languages
+      </footer>
+    </div>
+  )
+}
