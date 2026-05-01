@@ -23,7 +23,7 @@ export async function translateMeaningAware(
   if (!src || !tgt) throw new Error('Unknown language code')
 
   const response = await getClient().chat.completions.create({
-    model: 'llama-3.1-70b-versatile',
+    model: 'llama-3.3-70b-versatile',
     messages: [
       {
         role: 'system',

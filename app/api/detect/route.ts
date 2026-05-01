@@ -19,7 +19,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const topK = await detectLanguage(text, 3)
+    const topK = detectLanguage(text, 3)
     if (topK.length === 0) {
       return NextResponse.json({ error: 'Detection returned no results' }, { status: 500 })
     }
