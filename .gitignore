@@ -2,6 +2,12 @@
 
 # dependencies
 /node_modules
+
+# Python virtual environment
+ml/venv/
+ml/__pycache__/
+**/__pycache__/
+*.pyc
 /.pnp
 .pnp.*
 .yarn/*
