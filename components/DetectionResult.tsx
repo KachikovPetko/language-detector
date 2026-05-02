@@ -57,6 +57,14 @@ export default function DetectionResult({
         />
       </div>
 
+      {/* Low-confidence warning (ML model on short text) */}
+      {best.confidence < 0.4 && best.confidence < 0.96 && (
+        <p className="text-xs rounded-lg px-3 py-1.5"
+          style={{ background: 'rgba(255,165,0,0.1)', border: '1px solid rgba(255,165,0,0.25)', color: 'rgba(255,165,0,0.8)' }}>
+          Low confidence — try entering more text for a better result
+        </p>
+      )}
+
       {/* Runner-up hints */}
       {detection.topK.length > 1 && (
         <p className="text-xs text-white/40">

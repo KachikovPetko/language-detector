@@ -9,6 +9,7 @@ import ModeToggle from '@/components/ModeToggle'
 import TargetLanguagePicker from '@/components/TargetLanguagePicker'
 import DetectionResult from '@/components/DetectionResult'
 import type { AppState, InputMode, DetectApiResponse, TranslateApiResponse } from '@/lib/types'
+import { getByIso1 } from '@/lib/languages'
 
 type Action =
   | { type: 'SET_MODE';    mode: InputMode }
@@ -47,23 +48,38 @@ function reducer(state: AppState, action: Action): AppState {
 export default function Home() {
   const [state, dispatch] = useReducer(reducer, initial)
 
-  async function handleDetect(text: string) {
+  // whisperLang: ISO 639-1 code returned by Groq Whisper (audio/live modes only).
+  // When present and recognised, it skips the ML model — Whisper is more accurate
+  // on short speech transcripts than TF-IDF trained on Wikipedia text.
+  async function handleDetect(text: string, whisperLang?: string) {
     dispatch({ type: 'DETECTING' })
 
     let detection: DetectApiResponse
-    try {
-      const res = await fetch('/api/detect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
-      const data = (await res.json()) as DetectApiResponse & { error?: string }
-      if (!res.ok) { dispatch({ type: 'ERROR', error: data.error ?? 'Detection failed' }); return }
-      detection = data
+
+    const whisperLanguage = whisperLang ? getByIso1(whisperLang) : undefined
+    if (whisperLanguage) {
+      // Whisper detected a language we support — use it directly
+      detection = {
+        best: { language: whisperLanguage, confidence: 0.97 },
+        topK: [{ language: whisperLanguage, confidence: 0.97 }],
+      }
       dispatch({ type: 'DETECTED', detection })
-    } catch {
-      dispatch({ type: 'ERROR', error: 'Network error during detection' })
-      return
+    } else {
+      // Text mode (or unsupported Whisper language) — run ML model
+      try {
+        const res = await fetch('/api/detect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        })
+        const data = (await res.json()) as DetectApiResponse & { error?: string }
+        if (!res.ok) { dispatch({ type: 'ERROR', error: data.error ?? 'Detection failed' }); return }
+        detection = data
+        dispatch({ type: 'DETECTED', detection })
+      } catch {
+        dispatch({ type: 'ERROR', error: 'Network error during detection' })
+        return
+      }
     }
 
     const sourceLang = detection.best.language.iso3

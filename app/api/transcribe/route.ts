@@ -44,11 +44,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const text = await transcribeAudio(file)
+    const { text, whisperLang } = await transcribeAudio(file)
     if (!text) {
       return NextResponse.json({ error: 'Transcription returned empty text' }, { status: 422 })
     }
-    return NextResponse.json({ text })
+    return NextResponse.json({ text, detectedLang: whisperLang })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Transcription failed'
     return NextResponse.json({ error: message }, { status: 500 })

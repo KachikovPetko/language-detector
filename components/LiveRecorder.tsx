@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Mic, Square, Loader2, RotateCcw } from 'lucide-react'
 
 interface LiveRecorderProps {
-  onSubmit: (text: string) => void
+  onSubmit: (text: string, whisperLang?: string) => void
   isLoading: boolean
 }
 
@@ -88,7 +88,7 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
 
       try {
         const res  = await fetch('/api/transcribe', { method: 'POST', body: fd })
-        const data = await res.json() as { text?: string; error?: string }
+        const data = await res.json() as { text?: string; detectedLang?: string; error?: string }
         if (!res.ok || !data.text) {
           setError(data.error ?? 'Transcription failed — try again')
           setRecordState('idle')
@@ -96,7 +96,7 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
         }
         setTranscript(data.text)
         setRecordState('done')
-        onSubmit(data.text)
+        onSubmit(data.text, data.detectedLang || undefined)
       } catch {
         setError('Network error during transcription')
         setRecordState('idle')

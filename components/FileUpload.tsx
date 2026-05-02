@@ -7,14 +7,15 @@ const MAX_MB = 25
 const ACCEPTED = '.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm'
 
 interface FileUploadProps {
-  onSubmit: (text: string) => void
+  onSubmit: (text: string, whisperLang?: string) => void
   isLoading: boolean
 }
 
 type Status = 'idle' | 'transcribing' | 'done' | 'error'
 
 export default function FileUpload({ onSubmit, isLoading }: FileUploadProps) {
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef      = useRef<HTMLInputElement>(null)
+  const whisperLangRef = useRef('')
   const [isDragging, setIsDragging] = useState(false)
   const [file, setFile]             = useState<File | null>(null)
   const [status, setStatus]         = useState<Status>('idle')
@@ -38,9 +39,11 @@ export default function FileUpload({ onSubmit, isLoading }: FileUploadProps) {
     fd.append('file', f)
     try {
       const res = await fetch('/api/transcribe', { method: 'POST', body: fd })
-      const data = (await res.json()) as { text?: string; error?: string }
+      const data = (await res.json()) as { text?: string; detectedLang?: string; error?: string }
       if (!res.ok) { setStatus('error'); setErrorMsg(data.error ?? 'Transcription failed'); return }
       setTranscript(data.text ?? ''); setStatus('done')
+      // stash whisperLang so the Detect & Translate button can forward it
+      whisperLangRef.current = data.detectedLang ?? ''
     } catch {
       setStatus('error'); setErrorMsg('Network error during transcription')
     }
@@ -129,7 +132,7 @@ export default function FileUpload({ onSubmit, isLoading }: FileUploadProps) {
       {status === 'done' && (
         <button
           type="button"
-          onClick={() => onSubmit(transcript)}
+          onClick={() => onSubmit(transcript, whisperLangRef.current || undefined)}
           disabled={isLoading}
           className="flex items-center justify-center gap-2 rounded-xl px-6 py-3 font-semibold text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
           style={{ background: 'linear-gradient(to right, #ff6b35, #f7931e)' }}

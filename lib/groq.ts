@@ -75,10 +75,16 @@ export async function translateMeaningAware(
   return response.choices[0]?.message?.content?.trim() ?? ''
 }
 
-export async function transcribeAudio(file: File): Promise<string> {
+export async function transcribeAudio(file: File): Promise<{ text: string; whisperLang: string }> {
+  // verbose_json returns `language` (ISO 639-1 code) alongside the transcript
   const response = await getClient().audio.transcriptions.create({
     file,
     model: 'whisper-large-v3',
-  })
-  return response.text.trim()
+    response_format: 'verbose_json',
+  }) as unknown as { text: string; language?: string }
+
+  return {
+    text:        (response.text     ?? '').trim(),
+    whisperLang: (response.language ?? '').toLowerCase(),
+  }
 }
