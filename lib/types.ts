@@ -29,7 +29,10 @@ export interface TranslateApiResponse {
   meaningAware: string
 }
 
+export type InputMode = 'text' | 'audio' | 'live'
+
 export interface AppState {
+  mode: InputMode
   inputText: string
   targetLangIso3: string
   detection: DetectApiResponse | null

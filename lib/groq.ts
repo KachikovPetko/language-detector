@@ -40,15 +40,10 @@ export async function translateMeaningAware(
   return response.choices[0]?.message?.content?.trim() ?? ''
 }
 
-export async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<string> {
-  const ab = audioBuffer.buffer.slice(audioBuffer.byteOffset, audioBuffer.byteOffset + audioBuffer.byteLength) as ArrayBuffer
-  const blob = new Blob([ab], { type: mimeType })
-  const file = new File([blob], 'audio.webm', { type: mimeType })
-
+export async function transcribeAudio(file: File): Promise<string> {
   const response = await getClient().audio.transcriptions.create({
     file,
     model: 'whisper-large-v3',
   })
-
-  return response.text
+  return response.text.trim()
 }

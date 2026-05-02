@@ -3,19 +3,23 @@
 import { useReducer } from 'react'
 import { ExternalLink } from 'lucide-react'
 import TextInput from '@/components/TextInput'
+import FileUpload from '@/components/FileUpload'
+import ModeToggle from '@/components/ModeToggle'
 import TargetLanguagePicker from '@/components/TargetLanguagePicker'
 import DetectionResult from '@/components/DetectionResult'
-import type { AppState, DetectApiResponse, TranslateApiResponse } from '@/lib/types'
+import type { AppState, InputMode, DetectApiResponse, TranslateApiResponse } from '@/lib/types'
 
 type Action =
-  | { type: 'SET_TARGET'; lang: string }
+  | { type: 'SET_MODE';    mode: InputMode }
+  | { type: 'SET_TARGET';  lang: string }
   | { type: 'DETECTING' }
-  | { type: 'DETECTED'; detection: DetectApiResponse }
+  | { type: 'DETECTED';    detection: DetectApiResponse }
   | { type: 'TRANSLATING' }
-  | { type: 'TRANSLATED'; translation: TranslateApiResponse }
-  | { type: 'ERROR'; error: string }
+  | { type: 'TRANSLATED';  translation: TranslateApiResponse }
+  | { type: 'ERROR';       error: string }
 
 const initial: AppState = {
+  mode: 'text',
   inputText: '',
   targetLangIso3: 'eng',
   detection: null,
@@ -27,6 +31,8 @@ const initial: AppState = {
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
+    // Clear results when switching mode, preserve target language
+    case 'SET_MODE':    return { ...initial, mode: action.mode, targetLangIso3: state.targetLangIso3 }
     case 'SET_TARGET':  return { ...state, targetLangIso3: action.lang }
     case 'DETECTING':   return { ...state, isDetecting: true, error: null, detection: null, translation: null }
     case 'DETECTED':    return { ...state, isDetecting: false, detection: action.detection }
@@ -43,7 +49,6 @@ export default function Home() {
   async function handleDetect(text: string) {
     dispatch({ type: 'DETECTING' })
 
-    // Step 1 — detect language
     let detection: DetectApiResponse
     try {
       const res = await fetch('/api/detect', {
@@ -52,10 +57,7 @@ export default function Home() {
         body: JSON.stringify({ text }),
       })
       const data = (await res.json()) as DetectApiResponse & { error?: string }
-      if (!res.ok) {
-        dispatch({ type: 'ERROR', error: data.error ?? 'Detection failed' })
-        return
-      }
+      if (!res.ok) { dispatch({ type: 'ERROR', error: data.error ?? 'Detection failed' }); return }
       detection = data
       dispatch({ type: 'DETECTED', detection })
     } catch {
@@ -63,7 +65,6 @@ export default function Home() {
       return
     }
 
-    // Step 2 — translate (skip if same language)
     const sourceLang = detection.best.language.iso3
     if (sourceLang === state.targetLangIso3) {
       dispatch({ type: 'TRANSLATED', translation: { meaningAware: text } })
@@ -78,10 +79,7 @@ export default function Home() {
         body: JSON.stringify({ text, sourceLang, targetLang: state.targetLangIso3 }),
       })
       const data = (await res.json()) as TranslateApiResponse & { error?: string }
-      if (!res.ok) {
-        dispatch({ type: 'ERROR', error: data.error ?? 'Translation failed' })
-        return
-      }
+      if (!res.ok) { dispatch({ type: 'ERROR', error: data.error ?? 'Translation failed' }); return }
       dispatch({ type: 'TRANSLATED', translation: data })
     } catch {
       dispatch({ type: 'ERROR', error: 'Network error during translation' })
@@ -92,7 +90,6 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Header */}
       <header className="border-b px-6 py-4" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
         <div className="mx-auto flex max-w-2xl items-center justify-between">
           <div>
@@ -104,31 +101,33 @@ export default function Home() {
             </h1>
             <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>ML-powered language detection &amp; translation</p>
           </div>
-          <a
-            href="https://github.com"
-            target="_blank"
-            rel="noopener noreferrer"
+          <a href="https://github.com/KachikovPetko/language-detector" target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition"
-            style={{ color: 'rgba(255,255,255,0.5)' }}
-          >
+            style={{ color: 'rgba(255,255,255,0.5)' }}>
             <ExternalLink className="h-4 w-4" />
             GitHub
           </a>
         </div>
       </header>
 
-      {/* Main */}
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-10">
-        <div className="flex flex-col gap-6">
-          <TargetLanguagePicker
-            value={state.targetLangIso3}
-            onChange={lang => dispatch({ type: 'SET_TARGET', lang })}
-          />
+        <div className="flex flex-col gap-5">
+          <ModeToggle value={state.mode} onChange={mode => dispatch({ type: 'SET_MODE', mode })} />
+          <TargetLanguagePicker value={state.targetLangIso3} onChange={lang => dispatch({ type: 'SET_TARGET', lang })} />
 
-          <TextInput onSubmit={handleDetect} isLoading={isLoading} />
+          {state.mode === 'text'  && <TextInput   onSubmit={handleDetect} isLoading={isLoading} />}
+          {state.mode === 'audio' && <FileUpload  onSubmit={handleDetect} isLoading={isLoading} />}
+          {state.mode === 'live'  && (
+            <div className="flex flex-col items-center justify-center gap-2 rounded-xl py-12 text-center"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.12)' }}>
+              <p className="text-sm font-medium text-white">Live Recording</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>Coming in Phase 3 — uses Web Speech API directly in your browser</p>
+            </div>
+          )}
 
           {state.error && (
-            <div className="rounded-xl px-4 py-3 text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5' }}>
+            <div className="rounded-xl px-4 py-3 text-sm"
+              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#fca5a5' }}>
               {state.error}
             </div>
           )}
@@ -144,7 +143,8 @@ export default function Home() {
         </div>
       </main>
 
-      <footer className="border-t py-4 text-center text-xs" style={{ borderColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.25)' }}>
+      <footer className="border-t py-4 text-center text-xs"
+        style={{ borderColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.25)' }}>
         University ML Project · TF-IDF char n-grams · Logistic Regression · 20 languages
       </footer>
     </div>
