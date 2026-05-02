@@ -48,8 +48,9 @@ type RecordState = 'idle' | 'recording' | 'done'
 
 export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps) {
   const recognitionRef = useRef<ISpeechRecognition | null>(null)
-  // Refs prevent stale closures inside SpeechRecognition event callbacks
+  // All three text refs prevent stale-closure bugs inside SpeechRecognition callbacks
   const finalTextRef   = useRef('')
+  const interimTextRef = useRef('')   // ← mirrors interimText state; read in stopAndTranslate
   const isActiveRef    = useRef(false)
 
   const [recordState, setRecordState] = useState<RecordState>('idle')
@@ -75,6 +76,7 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
         if (e.results[i].isFinal) finalTextRef.current += e.results[i][0].transcript + ' '
         else interim = e.results[i][0].transcript
       }
+      interimTextRef.current = interim   // keep ref in sync
       setFinalText(finalTextRef.current)
       setInterimText(interim)
     }
@@ -103,6 +105,7 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
   function startRecording() {
     const rec = buildRecognition()
     finalTextRef.current   = ''
+    interimTextRef.current = ''
     isActiveRef.current    = true
     recognitionRef.current = rec
     setFinalText(''); setInterimText(''); setError(null)
@@ -113,14 +116,18 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
   function stopAndTranslate() {
     isActiveRef.current = false
     recognitionRef.current?.stop()
-    const text = (finalTextRef.current + interimText).trim()
+    // Read from refs — NOT from state — so we always get the latest values
+    // regardless of when React last flushed a render
+    const text = (finalTextRef.current + interimTextRef.current).trim()
+    interimTextRef.current = ''
     setInterimText('')
     setRecordState('done')
     if (text) onSubmit(text)
   }
 
   function reset() {
-    isActiveRef.current = false
+    isActiveRef.current    = false
+    interimTextRef.current = ''
     recognitionRef.current?.abort()
     finalTextRef.current = ''
     setFinalText(''); setInterimText(''); setError(null)
@@ -141,7 +148,7 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
 
   return (
     <div className="flex flex-col items-center gap-5">
-      {/* Large circular record button */}
+      {/* Large circular record button — click once to start, click again to stop */}
       <div className="relative mt-2">
         {recordState === 'recording' && (
           <span className="absolute inset-0 rounded-full animate-ping"
@@ -149,7 +156,7 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
         )}
         <button
           type="button"
-          onClick={recordState === 'recording' ? undefined : startRecording}
+          onClick={recordState === 'recording' ? stopAndTranslate : startRecording}
           disabled={isLoading}
           className="relative flex h-24 w-24 items-center justify-center rounded-full transition-transform active:scale-95 disabled:opacity-40"
           style={{
@@ -161,14 +168,17 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
               : '0 0 0 4px rgba(255,107,53,0.2)',
           }}
         >
-          <Mic className="h-9 w-9 text-white" />
+          {recordState === 'recording'
+            ? <Square className="h-8 w-8 fill-white text-white" />
+            : <Mic    className="h-9 w-9 text-white" />
+          }
         </button>
       </div>
 
       {/* Status label */}
       <p className="text-sm" style={{ color: 'rgba(255,255,255,0.45)' }}>
         {recordState === 'idle'      && 'Click to start recording'}
-        {recordState === 'recording' && '● Listening — speak now'}
+        {recordState === 'recording' && '● Listening — click again or use the button below to stop'}
         {recordState === 'done'      && 'Recording stopped'}
       </p>
 
@@ -195,7 +205,7 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
         </p>
       )}
 
-      {/* Stop & Translate — big red button while recording */}
+      {/* Stop & Translate button (secondary — big button also works) */}
       {recordState === 'recording' && (
         <button
           type="button"
