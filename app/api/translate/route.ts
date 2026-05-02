@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { translateMeaningAware } from '@/lib/groq'
+import { translateNaive, translateMeaningAware } from '@/lib/groq'
 import { getByIso3 } from '@/lib/languages'
 import type { TranslateApiRequest, TranslateApiResponse } from '@/lib/types'
 
@@ -26,8 +26,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const meaningAware = await translateMeaningAware(text.trim(), sourceLang, targetLang)
-    const response: TranslateApiResponse = { meaningAware }
+    const [naive, meaningAware] = await Promise.all([
+      translateNaive(text.trim(), sourceLang, targetLang),
+      translateMeaningAware(text.trim(), sourceLang, targetLang),
+    ])
+    const response: TranslateApiResponse = { naive, meaningAware }
     return NextResponse.json(response)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Translation failed'

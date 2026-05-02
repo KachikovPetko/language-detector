@@ -68,7 +68,7 @@ export default function Home() {
 
     const sourceLang = detection.best.language.iso3
     if (sourceLang === state.targetLangIso3) {
-      dispatch({ type: 'TRANSLATED', translation: { meaningAware: text } })
+      dispatch({ type: 'TRANSLATED', translation: { naive: text, meaningAware: text } })
       return
     }
 

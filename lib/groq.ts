@@ -13,6 +13,37 @@ function getClient(): Groq {
   return client
 }
 
+export async function translateNaive(
+  text: string,
+  sourceLangIso3: string,
+  targetLangIso3: string
+): Promise<string> {
+  const src = getByIso3(sourceLangIso3)
+  const tgt = getByIso3(targetLangIso3)
+  if (!src || !tgt) throw new Error('Unknown language code')
+
+  const response = await getClient().chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [
+      {
+        role: 'system',
+        content:
+          `You are a mechanical word-by-word translator from ${src.name} to ${tgt.name}. ` +
+          `Translate each word individually in the exact original order. ` +
+          `Do NOT adjust grammar, word order, or sentence structure. ` +
+          `Do NOT consider context or idioms — translate each word in isolation using its most common literal meaning. ` +
+          `Use ONLY ${tgt.name} script/characters. ` +
+          `Output ONLY the word-for-word translation with no explanation.`,
+      },
+      { role: 'user', content: text },
+    ],
+    temperature: 0.1,
+    max_tokens: 1024,
+  })
+
+  return response.choices[0]?.message?.content?.trim() ?? ''
+}
+
 export async function translateMeaningAware(
   text: string,
   sourceLangIso3: string,

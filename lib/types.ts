@@ -26,6 +26,7 @@ export interface TranslateApiRequest {
 }
 
 export interface TranslateApiResponse {
+  naive: string
   meaningAware: string
 }
 
