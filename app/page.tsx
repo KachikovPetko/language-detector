@@ -4,6 +4,7 @@ import { useReducer } from 'react'
 import { ExternalLink } from 'lucide-react'
 import TextInput from '@/components/TextInput'
 import FileUpload from '@/components/FileUpload'
+import LiveRecorder from '@/components/LiveRecorder'
 import ModeToggle from '@/components/ModeToggle'
 import TargetLanguagePicker from '@/components/TargetLanguagePicker'
 import DetectionResult from '@/components/DetectionResult'
@@ -117,13 +118,7 @@ export default function Home() {
 
           {state.mode === 'text'  && <TextInput   onSubmit={handleDetect} isLoading={isLoading} />}
           {state.mode === 'audio' && <FileUpload  onSubmit={handleDetect} isLoading={isLoading} />}
-          {state.mode === 'live'  && (
-            <div className="flex flex-col items-center justify-center gap-2 rounded-xl py-12 text-center"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.12)' }}>
-              <p className="text-sm font-medium text-white">Live Recording</p>
-              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>Coming in Phase 3 — uses Web Speech API directly in your browser</p>
-            </div>
-          )}
+          {state.mode === 'live'  && <LiveRecorder onSubmit={handleDetect} isLoading={isLoading} />}
 
           {state.error && (
             <div className="rounded-xl px-4 py-3 text-sm"
