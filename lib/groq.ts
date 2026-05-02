@@ -28,8 +28,12 @@ export async function translateMeaningAware(
       {
         role: 'system',
         content:
-          `You are a professional translator. Translate from ${src.name} to ${tgt.name}. ` +
-          `Preserve meaning, tone, and idioms naturally. Respond with only the translated text, nothing else.`,
+          `You are a professional translator. Translate the given text from ${src.name} to ${tgt.name}. ` +
+          `Rules: ` +
+          `(1) Output ONLY the translated text — no explanations, no labels, no quotes. ` +
+          `(2) Use ONLY ${tgt.name} characters and script. Never mix in characters from any other language. ` +
+          `(3) For untranslatable foreign words or neologisms, transliterate them into the ${tgt.name} alphabet/script, or keep them as-is in Latin script if transliteration is not natural. ` +
+          `(4) Preserve the original meaning, tone, and register.`,
       },
       { role: 'user', content: text },
     ],
