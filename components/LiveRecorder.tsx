@@ -3,210 +3,152 @@
 import { useEffect, useRef, useState } from 'react'
 import { Mic, Square, Loader2, RotateCcw } from 'lucide-react'
 
-// Minimal Web Speech API types — not shipped in every TS dom lib configuration
-interface ISpeechRecognitionAlternative { transcript: string }
-interface ISpeechRecognitionResult {
-  isFinal: boolean
-  readonly length: number
-  [index: number]: ISpeechRecognitionAlternative
-}
-interface ISpeechRecognitionResultList {
-  readonly length: number
-  [index: number]: ISpeechRecognitionResult
-}
-interface ISpeechRecognitionEvent extends Event {
-  readonly resultIndex: number
-  readonly results: ISpeechRecognitionResultList
-}
-interface ISpeechRecognitionErrorEvent extends Event { error: string }
-interface ISpeechRecognition extends EventTarget {
-  continuous: boolean
-  interimResults: boolean
-  lang: string
-  start(): void
-  stop(): void
-  abort(): void
-  onresult:      ((e: ISpeechRecognitionEvent)      => void) | null
-  onerror:       ((e: ISpeechRecognitionErrorEvent) => void) | null
-  onend:         (() => void) | null
-  onaudiostart:  (() => void) | null
-  onspeechstart: (() => void) | null
-  onspeechend:   (() => void) | null
-}
-type SpeechRecognitionCtor = new () => ISpeechRecognition
-
-function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
-  if (typeof window === 'undefined') return null
-  const w = window as unknown as Record<string, unknown>
-  return (w['SpeechRecognition'] ?? w['webkitSpeechRecognition'] ?? null) as SpeechRecognitionCtor | null
-}
-
-// ---- Component --------------------------------------------------------------
-
 interface LiveRecorderProps {
   onSubmit: (text: string) => void
   isLoading: boolean
 }
 
-type RecordState = 'idle' | 'recording' | 'done'
+type RecordState = 'idle' | 'recording' | 'transcribing' | 'done'
 
 export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps) {
-  const recognitionRef   = useRef<ISpeechRecognition | null>(null)
-  const finalTextRef     = useRef('')
-  const interimTextRef   = useRef('')
-  const isActiveRef      = useRef(false)
-  const pendingSubmitRef = useRef(false)
+  const streamRef   = useRef<MediaStream | null>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef   = useRef<Blob[]>([])
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const rafRef      = useRef<number>(0)
 
-  const [recordState,   setRecordState]   = useState<RecordState>('idle')
-  const [finalText,     setFinalText]     = useState('')
-  const [interimText,   setInterimText]   = useState('')
-  const [error,         setError]         = useState<string | null>(null)
-  const [hint,          setHint]          = useState<string | null>(null)
-  const [audioActive,   setAudioActive]   = useState(false)   // onaudiostart fired
-  const [speechActive,  setSpeechActive]  = useState(false)   // onspeechstart/end
-  const [supported,     setSupported]     = useState(true)
+  const [recordState, setRecordState] = useState<RecordState>('idle')
+  const [transcript,  setTranscript]  = useState('')
+  const [volume,      setVolume]      = useState(0)   // 0–100
+  const [error,       setError]       = useState<string | null>(null)
 
-  useEffect(() => {
-    setSupported(getSpeechRecognitionCtor() !== null)
-    return () => { recognitionRef.current?.abort() }
-  }, [])
+  useEffect(() => () => teardown(), [])
 
-  function buildRecognition(): ISpeechRecognition {
-    const Ctor = getSpeechRecognitionCtor()!
-    const rec = new Ctor()
-    rec.continuous     = true
-    rec.interimResults = true
-    rec.lang           = ''   // follow browser UI language; accepts any language
+  function teardown() {
+    cancelAnimationFrame(rafRef.current)
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    try { audioCtxRef.current?.close() } catch { /* ignore */ }
+    audioCtxRef.current = null
+    analyserRef.current = null
+    setVolume(0)
+  }
 
-    rec.onaudiostart  = () => { setAudioActive(true); setHint(null) }
-    rec.onspeechstart = () => { setSpeechActive(true); setHint(null) }
-    rec.onspeechend   = () => setSpeechActive(false)
-
-    rec.onresult = (e: ISpeechRecognitionEvent) => {
-      let interim = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalTextRef.current += e.results[i][0].transcript + ' '
-        else interim = e.results[i][0].transcript
+  function startVolumeMeter(stream: MediaStream) {
+    try {
+      const ctx    = new AudioContext()
+      const source = ctx.createMediaStreamSource(stream)
+      const node   = ctx.createAnalyser()
+      node.fftSize = 256
+      source.connect(node)
+      audioCtxRef.current = ctx
+      analyserRef.current = node
+      const buf = new Uint8Array(node.frequencyBinCount)
+      function tick() {
+        node.getByteTimeDomainData(buf)
+        const rms = Math.sqrt(buf.reduce((s, v) => s + (v - 128) ** 2, 0) / buf.length)
+        setVolume(Math.min(100, rms * 3))
+        rafRef.current = requestAnimationFrame(tick)
       }
-      interimTextRef.current = interim
-      setFinalText(finalTextRef.current)
-      setInterimText(interim)
-      setHint(null)
-    }
-
-    rec.onerror = (e: ISpeechRecognitionErrorEvent) => {
-      if (e.error === 'no-speech') {
-        setHint('No speech detected — speak closer to your microphone')
-        return
-      }
-      isActiveRef.current = false
-      setRecordState('idle')
-      setError(
-        e.error === 'not-allowed'
-          ? 'Microphone access denied — check browser and OS permissions, then try again.'
-          : `Speech recognition error: ${e.error}`
-      )
-    }
-
-    rec.onend = () => {
-      setAudioActive(false)
-      setSpeechActive(false)
-      if (pendingSubmitRef.current) {
-        // User clicked stop — all final results delivered; safe to read refs now
-        pendingSubmitRef.current = false
-        const text = (finalTextRef.current + interimTextRef.current).trim()
-        interimTextRef.current = ''
-        setInterimText('')
-        setRecordState('done')
-        if (text) onSubmit(text)
-      } else if (isActiveRef.current) {
-        // Browser auto-stopped on silence; restart to keep continuous recording
-        try { rec.start() } catch { /* stopped externally */ }
-      }
-    }
-
-    return rec
+      tick()
+    } catch { /* AudioContext unavailable */ }
   }
 
   async function startRecording() {
-    setError(null); setHint(null); setAudioActive(false); setSpeechActive(false)
+    setError(null)
 
-    // Request mic permission — stream is released immediately so it doesn't
-    // compete with the speech recognizer's own internal mic capture
+    let stream: MediaStream
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      stream.getTracks().forEach(t => t.stop())
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch {
       setError('Microphone access denied — check browser and OS permissions, then try again.')
       return
     }
+    streamRef.current = stream
+    startVolumeMeter(stream)
 
-    const rec = buildRecognition()
-    finalTextRef.current     = ''
-    interimTextRef.current   = ''
-    pendingSubmitRef.current = false
-    isActiveRef.current      = true
-    recognitionRef.current   = rec
-    setFinalText(''); setInterimText('')
+    const recorder = new MediaRecorder(stream)
+    chunksRef.current = []
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data)
+    }
+
+    recorder.onstop = async () => {
+      teardown()
+      setRecordState('transcribing')
+
+      const mimeType = recorder.mimeType || 'audio/webm'
+      const ext      = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm'
+      const blob     = new Blob(chunksRef.current, { type: mimeType })
+
+      const fd = new FormData()
+      fd.append('file', blob, `recording.${ext}`)
+
+      try {
+        const res  = await fetch('/api/transcribe', { method: 'POST', body: fd })
+        const data = await res.json() as { text?: string; error?: string }
+        if (!res.ok || !data.text) {
+          setError(data.error ?? 'Transcription failed — try again')
+          setRecordState('idle')
+          return
+        }
+        setTranscript(data.text)
+        setRecordState('done')
+        onSubmit(data.text)
+      } catch {
+        setError('Network error during transcription')
+        setRecordState('idle')
+      }
+    }
+
+    recorder.start()
+    recorderRef.current = recorder
+    setTranscript('')
     setRecordState('recording')
-    rec.start()
   }
 
   function stopAndTranslate() {
-    isActiveRef.current      = false
-    pendingSubmitRef.current = true
-    recognitionRef.current?.stop()
+    recorderRef.current?.stop()
+    recorderRef.current = null
   }
 
   function reset() {
-    isActiveRef.current      = false
-    pendingSubmitRef.current = false
-    interimTextRef.current   = ''
-    recognitionRef.current?.abort()
-    finalTextRef.current = ''
-    setFinalText(''); setInterimText(''); setError(null); setHint(null)
-    setAudioActive(false); setSpeechActive(false)
+    recorderRef.current?.stop()
+    recorderRef.current = null
+    teardown()
+    chunksRef.current = []
+    setTranscript('')
+    setError(null)
     setRecordState('idle')
   }
 
-  const hasText = finalText || interimText
-
-  if (!supported) {
-    return (
-      <div className="flex flex-col items-center gap-2 rounded-xl py-10 text-center"
-        style={{ background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.12)' }}>
-        <p className="text-sm font-medium text-white">Web Speech API not supported</p>
-        <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>Use Chrome or Edge for live recording</p>
-      </div>
-    )
-  }
+  // 12 volume bars
+  const bars = Array.from({ length: 12 }, (_, i) => ({
+    lit:    volume > (i / 12) * 100,
+    height: 5 + i * 2,
+  }))
 
   return (
     <div className="flex flex-col items-center gap-5">
 
-      {/* Animated bars — CSS only, driven by speech recognition events */}
+      {/* Volume meter — real mic level via AudioContext */}
       {recordState === 'recording' && (
         <div className="flex items-end gap-[3px] h-8">
-          {[3, 5, 8, 6, 10, 7, 4, 9, 6, 5, 8, 4].map((h, i) => (
-            <div
-              key={i}
-              className="w-1.5 rounded-sm"
+          {bars.map((b, i) => (
+            <div key={i}
+              className="w-1.5 rounded-sm transition-all duration-75"
               style={{
-                height: `${speechActive ? h * 2.5 : audioActive ? h * 1.2 : 6}px`,
-                background: speechActive
-                  ? (i % 3 === 0 ? '#f7931e' : '#ff6b35')
-                  : 'rgba(255,255,255,0.2)',
-                transition: `height ${80 + i * 15}ms ease`,
+                height: `${b.height}px`,
+                background: b.lit ? '#ff6b35' : 'rgba(255,255,255,0.12)',
               }}
             />
           ))}
-          <span className="ml-2 text-xs self-center" style={{ color: 'rgba(255,255,255,0.35)' }}>
-            {speechActive ? 'speech detected' : audioActive ? 'mic active' : 'waiting for mic…'}
-          </span>
         </div>
       )}
 
-      {/* Large circular record button */}
+      {/* Record button */}
       <div className="relative mt-2">
         {recordState === 'recording' && (
           <span className="absolute inset-0 rounded-full animate-ping"
@@ -215,7 +157,7 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
         <button
           type="button"
           onClick={recordState === 'recording' ? stopAndTranslate : startRecording}
-          disabled={isLoading}
+          disabled={isLoading || recordState === 'transcribing'}
           className="relative flex h-24 w-24 items-center justify-center rounded-full transition-transform active:scale-95 disabled:opacity-40"
           style={{
             background: recordState === 'recording'
@@ -226,37 +168,26 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
               : '0 0 0 4px rgba(255,107,53,0.2)',
           }}
         >
-          {recordState === 'recording'
-            ? <Square className="h-8 w-8 fill-white text-white" />
-            : <Mic    className="h-9 w-9 text-white" />
-          }
+          {recordState === 'recording'    && <Square  className="h-8 w-8 fill-white text-white" />}
+          {recordState === 'transcribing' && <Loader2 className="h-8 w-8 animate-spin text-white" />}
+          {(recordState === 'idle' || recordState === 'done') && <Mic className="h-9 w-9 text-white" />}
         </button>
       </div>
 
-      {/* Status label */}
+      {/* Status */}
       <p className="text-sm" style={{ color: 'rgba(255,255,255,0.45)' }}>
-        {recordState === 'idle'      && 'Click to start recording'}
-        {recordState === 'recording' && '● Listening — click again or use the button below to stop'}
-        {recordState === 'done'      && 'Recording stopped'}
+        {recordState === 'idle'         && 'Click to start recording'}
+        {recordState === 'recording'    && '● Recording — click to stop & transcribe'}
+        {recordState === 'transcribing' && 'Transcribing with Whisper…'}
+        {recordState === 'done'         && 'Transcription complete'}
       </p>
 
-      {/* No-speech hint */}
-      {hint && recordState === 'recording' && (
-        <p className="text-xs" style={{ color: 'rgba(255,165,0,0.8)' }}>{hint}</p>
-      )}
-
-      {/* Live transcript */}
-      {(hasText || recordState === 'recording') && (
+      {/* Transcript */}
+      {transcript && (
         <div className="w-full rounded-xl px-4 py-3 text-sm leading-relaxed"
-          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', minHeight: '72px' }}>
-          {hasText ? (
-            <>
-              <span className="text-white">{finalText}</span>
-              <span className="italic" style={{ color: 'rgba(255,255,255,0.4)' }}>{interimText}</span>
-            </>
-          ) : (
-            <span className="italic" style={{ color: 'rgba(255,255,255,0.25)' }}>Transcript will appear here…</span>
-          )}
+          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <p className="mb-1 text-xs font-medium" style={{ color: 'rgba(255,255,255,0.4)' }}>Transcript</p>
+          <span className="text-white">{transcript}</span>
         </div>
       )}
 
@@ -268,7 +199,7 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
         </p>
       )}
 
-      {/* Stop & Translate button (secondary — big button also works) */}
+      {/* Stop & Translate (secondary) */}
       {recordState === 'recording' && (
         <button
           type="button"
@@ -277,11 +208,11 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
           style={{ background: '#ef4444' }}
         >
           <Square className="h-4 w-4 fill-white" />
-          Stop &amp; Translate
+          Stop &amp; Transcribe
         </button>
       )}
 
-      {/* Post-recording */}
+      {/* Post-done */}
       {recordState === 'done' && (
         isLoading ? (
           <span className="flex items-center gap-2 text-sm" style={{ color: 'rgba(255,255,255,0.45)' }}>
