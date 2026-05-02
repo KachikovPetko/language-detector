@@ -47,11 +47,12 @@ interface LiveRecorderProps {
 type RecordState = 'idle' | 'recording' | 'done'
 
 export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps) {
-  const recognitionRef = useRef<ISpeechRecognition | null>(null)
-  // All three text refs prevent stale-closure bugs inside SpeechRecognition callbacks
-  const finalTextRef   = useRef('')
-  const interimTextRef = useRef('')   // ← mirrors interimText state; read in stopAndTranslate
-  const isActiveRef    = useRef(false)
+  const recognitionRef    = useRef<ISpeechRecognition | null>(null)
+  const finalTextRef      = useRef('')
+  const interimTextRef    = useRef('')
+  const isActiveRef       = useRef(false)
+  // Set true when user clicks stop; onend reads refs AFTER browser delivers final results
+  const pendingSubmitRef  = useRef(false)
 
   const [recordState, setRecordState] = useState<RecordState>('idle')
   const [finalText,   setFinalText]   = useState('')
@@ -92,9 +93,17 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
       )
     }
 
-    // Some browsers auto-stop on silence even with continuous=true; restart if still active
     rec.onend = () => {
-      if (isActiveRef.current) {
+      if (pendingSubmitRef.current) {
+        // User clicked stop — all final results have now been delivered; safe to read refs
+        pendingSubmitRef.current = false
+        const text = (finalTextRef.current + interimTextRef.current).trim()
+        interimTextRef.current = ''
+        setInterimText('')
+        setRecordState('done')
+        if (text) onSubmit(text)
+      } else if (isActiveRef.current) {
+        // Browser auto-stopped on silence; restart to keep continuous recording
         try { rec.start() } catch { /* stopped externally */ }
       }
     }
@@ -104,30 +113,27 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
 
   function startRecording() {
     const rec = buildRecognition()
-    finalTextRef.current   = ''
-    interimTextRef.current = ''
-    isActiveRef.current    = true
-    recognitionRef.current = rec
+    finalTextRef.current     = ''
+    interimTextRef.current   = ''
+    pendingSubmitRef.current = false
+    isActiveRef.current      = true
+    recognitionRef.current   = rec
     setFinalText(''); setInterimText(''); setError(null)
     setRecordState('recording')
     rec.start()
   }
 
   function stopAndTranslate() {
-    isActiveRef.current = false
+    isActiveRef.current      = false
+    pendingSubmitRef.current = true   // onend will do the actual submit
     recognitionRef.current?.stop()
-    // Read from refs — NOT from state — so we always get the latest values
-    // regardless of when React last flushed a render
-    const text = (finalTextRef.current + interimTextRef.current).trim()
-    interimTextRef.current = ''
-    setInterimText('')
-    setRecordState('done')
-    if (text) onSubmit(text)
+    // Don't read refs here — browser may still be delivering the last onresult
   }
 
   function reset() {
-    isActiveRef.current    = false
-    interimTextRef.current = ''
+    isActiveRef.current      = false
+    pendingSubmitRef.current = false
+    interimTextRef.current   = ''
     recognitionRef.current?.abort()
     finalTextRef.current = ''
     setFinalText(''); setInterimText(''); setError(null)
