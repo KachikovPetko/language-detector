@@ -111,7 +111,17 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
     return rec
   }
 
-  function startRecording() {
+  async function startRecording() {
+    // Explicitly request mic permission so the browser shows its native prompt.
+    // The stream is released immediately; the speech API opens its own track.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach(t => t.stop())
+    } catch {
+      setError('Microphone access denied — click the camera/mic icon in your browser address bar to allow it.')
+      return
+    }
+
     const rec = buildRecognition()
     finalTextRef.current     = ''
     interimTextRef.current   = ''
