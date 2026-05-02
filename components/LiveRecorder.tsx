@@ -22,12 +22,15 @@ interface ISpeechRecognitionErrorEvent extends Event { error: string }
 interface ISpeechRecognition extends EventTarget {
   continuous: boolean
   interimResults: boolean
+  lang: string
   start(): void
   stop(): void
   abort(): void
-  onresult:  ((e: ISpeechRecognitionEvent)      => void) | null
-  onerror:   ((e: ISpeechRecognitionErrorEvent) => void) | null
-  onend:     (() => void) | null
+  onresult:      ((e: ISpeechRecognitionEvent)      => void) | null
+  onerror:       ((e: ISpeechRecognitionErrorEvent) => void) | null
+  onend:         (() => void) | null
+  onaudiostart:  (() => void) | null
+  onspeechstart: (() => void) | null
 }
 type SpeechRecognitionCtor = new () => ISpeechRecognition
 
@@ -47,29 +50,77 @@ interface LiveRecorderProps {
 type RecordState = 'idle' | 'recording' | 'done'
 
 export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps) {
-  const recognitionRef    = useRef<ISpeechRecognition | null>(null)
-  const finalTextRef      = useRef('')
-  const interimTextRef    = useRef('')
-  const isActiveRef       = useRef(false)
-  // Set true when user clicks stop; onend reads refs AFTER browser delivers final results
-  const pendingSubmitRef  = useRef(false)
+  const recognitionRef   = useRef<ISpeechRecognition | null>(null)
+  const finalTextRef     = useRef('')
+  const interimTextRef   = useRef('')
+  const isActiveRef      = useRef(false)
+  const pendingSubmitRef = useRef(false)
+
+  // Mic level visualization
+  const streamRef      = useRef<MediaStream | null>(null)
+  const audioCtxRef    = useRef<AudioContext | null>(null)
+  const analyserRef    = useRef<AnalyserNode | null>(null)
+  const rafRef         = useRef<number>(0)
+  const [volume, setVolume] = useState(0)   // 0–100 RMS level
+  const [audioActive, setAudioActive] = useState(false)   // onaudiostart fired
 
   const [recordState, setRecordState] = useState<RecordState>('idle')
   const [finalText,   setFinalText]   = useState('')
   const [interimText, setInterimText] = useState('')
   const [error,       setError]       = useState<string | null>(null)
+  const [hint,        setHint]        = useState<string | null>(null)
   const [supported,   setSupported]   = useState(true)
 
   useEffect(() => {
     setSupported(getSpeechRecognitionCtor() !== null)
-    return () => { recognitionRef.current?.abort() }
+    return () => {
+      recognitionRef.current?.abort()
+      stopStream()
+    }
   }, [])
+
+  function stopStream() {
+    cancelAnimationFrame(rafRef.current)
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+    try { audioCtxRef.current?.close() } catch { /* ignore */ }
+    audioCtxRef.current = null
+    analyserRef.current = null
+    setVolume(0)
+    setAudioActive(false)
+  }
+
+  function startVolumeMeter(stream: MediaStream) {
+    try {
+      const ctx = new AudioContext()
+      const source = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      source.connect(analyser)
+      audioCtxRef.current = ctx
+      analyserRef.current = analyser
+
+      const buf = new Uint8Array(analyser.frequencyBinCount)
+      function tick() {
+        analyser.getByteTimeDomainData(buf)
+        // RMS of the signal (0–128 is silence centre)
+        const rms = Math.sqrt(buf.reduce((s, v) => s + (v - 128) ** 2, 0) / buf.length)
+        setVolume(Math.min(100, rms * 2.5))
+        rafRef.current = requestAnimationFrame(tick)
+      }
+      tick()
+    } catch { /* AudioContext unavailable — skip visualisation */ }
+  }
 
   function buildRecognition(): ISpeechRecognition {
     const Ctor = getSpeechRecognitionCtor()!
     const rec = new Ctor()
     rec.continuous     = true
     rec.interimResults = true
+    rec.lang           = ''   // follow browser UI language; accepts any language
+
+    rec.onaudiostart  = () => setAudioActive(true)
+    rec.onspeechstart = () => setHint(null)   // clear "no speech" hint once voice detected
 
     rec.onresult = (e: ISpeechRecognitionEvent) => {
       let interim = ''
@@ -77,33 +128,36 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
         if (e.results[i].isFinal) finalTextRef.current += e.results[i][0].transcript + ' '
         else interim = e.results[i][0].transcript
       }
-      interimTextRef.current = interim   // keep ref in sync
+      interimTextRef.current = interim
       setFinalText(finalTextRef.current)
       setInterimText(interim)
+      setHint(null)
     }
 
     rec.onerror = (e: ISpeechRecognitionErrorEvent) => {
-      if (e.error === 'no-speech') return
+      if (e.error === 'no-speech') {
+        setHint('No speech detected — speak closer to your microphone')
+        return
+      }
       isActiveRef.current = false
       setRecordState('idle')
       setError(
         e.error === 'not-allowed'
-          ? 'Microphone access denied — allow permission and try again.'
+          ? 'Microphone access denied — check browser and OS permissions, then try again.'
           : `Speech recognition error: ${e.error}`
       )
     }
 
     rec.onend = () => {
       if (pendingSubmitRef.current) {
-        // User clicked stop — all final results have now been delivered; safe to read refs
         pendingSubmitRef.current = false
         const text = (finalTextRef.current + interimTextRef.current).trim()
         interimTextRef.current = ''
         setInterimText('')
         setRecordState('done')
+        stopStream()
         if (text) onSubmit(text)
       } else if (isActiveRef.current) {
-        // Browser auto-stopped on silence; restart to keep continuous recording
         try { rec.start() } catch { /* stopped externally */ }
       }
     }
@@ -112,15 +166,17 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
   }
 
   async function startRecording() {
-    // Explicitly request mic permission so the browser shows its native prompt.
-    // The stream is released immediately; the speech API opens its own track.
+    setError(null); setHint(null)
+
+    let stream: MediaStream
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      stream.getTracks().forEach(t => t.stop())
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch {
-      setError('Microphone access denied — click the camera/mic icon in your browser address bar to allow it.')
+      setError('Microphone access denied — check browser and OS permissions, then try again.')
       return
     }
+    streamRef.current = stream
+    startVolumeMeter(stream)
 
     const rec = buildRecognition()
     finalTextRef.current     = ''
@@ -128,16 +184,15 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
     pendingSubmitRef.current = false
     isActiveRef.current      = true
     recognitionRef.current   = rec
-    setFinalText(''); setInterimText(''); setError(null)
+    setFinalText(''); setInterimText('')
     setRecordState('recording')
     rec.start()
   }
 
   function stopAndTranslate() {
     isActiveRef.current      = false
-    pendingSubmitRef.current = true   // onend will do the actual submit
+    pendingSubmitRef.current = true
     recognitionRef.current?.stop()
-    // Don't read refs here — browser may still be delivering the last onresult
   }
 
   function reset() {
@@ -146,7 +201,8 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
     interimTextRef.current   = ''
     recognitionRef.current?.abort()
     finalTextRef.current = ''
-    setFinalText(''); setInterimText(''); setError(null)
+    stopStream()
+    setFinalText(''); setInterimText(''); setError(null); setHint(null)
     setRecordState('idle')
   }
 
@@ -162,9 +218,37 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
     )
   }
 
+  // Build 12 volume bars for the level meter
+  const bars = Array.from({ length: 12 }, (_, i) => {
+    const threshold = (i / 12) * 100
+    const lit = volume > threshold
+    return { lit, height: 6 + i * 2 }
+  })
+
   return (
     <div className="flex flex-col items-center gap-5">
-      {/* Large circular record button — click once to start, click again to stop */}
+
+      {/* Mic level meter — only visible while recording */}
+      {recordState === 'recording' && (
+        <div className="flex items-end gap-[3px] h-8">
+          {bars.map((b, i) => (
+            <div key={i}
+              className="w-1.5 rounded-sm transition-all duration-75"
+              style={{
+                height: `${b.height}px`,
+                background: b.lit
+                  ? (i < 8 ? '#ff6b35' : '#ef4444')
+                  : 'rgba(255,255,255,0.12)',
+              }}
+            />
+          ))}
+          <span className="ml-2 text-xs self-center" style={{ color: 'rgba(255,255,255,0.35)' }}>
+            {audioActive ? 'mic active' : 'waiting for mic…'}
+          </span>
+        </div>
+      )}
+
+      {/* Large circular record button */}
       <div className="relative mt-2">
         {recordState === 'recording' && (
           <span className="absolute inset-0 rounded-full animate-ping"
@@ -197,6 +281,11 @@ export default function LiveRecorder({ onSubmit, isLoading }: LiveRecorderProps)
         {recordState === 'recording' && '● Listening — click again or use the button below to stop'}
         {recordState === 'done'      && 'Recording stopped'}
       </p>
+
+      {/* No-speech hint */}
+      {hint && recordState === 'recording' && (
+        <p className="text-xs" style={{ color: 'rgba(255,165,0,0.8)' }}>{hint}</p>
+      )}
 
       {/* Live transcript */}
       {(hasText || recordState === 'recording') && (
