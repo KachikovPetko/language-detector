@@ -1,17 +1,21 @@
 'use client'
 
+import { useState } from 'react'
+import { Volume2, VolumeX } from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, Cell, ResponsiveContainer, Tooltip,
+} from 'recharts'
 import type { DetectApiResponse, TranslateApiResponse } from '@/lib/types'
 import { getByIso3 } from '@/lib/languages'
 
 interface DetectionResultProps {
-  detection:     DetectApiResponse
-  translation:   TranslateApiResponse | null
-  isTranslating: boolean
+  detection:      DetectApiResponse
+  translation:    TranslateApiResponse | null
+  isTranslating:  boolean
   targetLangIso3: string
 }
 
-// Returns tokens from `meaningful` annotated as changed/unchanged vs `naive`.
-// A token is "changed" if the lowercased word doesn't appear anywhere in naive.
+// Words in `meaningful` absent from `naive` word set are marked changed.
 function diffTokens(naive: string, meaningful: string): { text: string; changed: boolean }[] {
   const naiveWords = new Set((naive.match(/\w+/g) ?? []).map(w => w.toLowerCase()))
   const tokens = meaningful.match(/\S+|\s+/g) ?? []
@@ -28,16 +32,39 @@ export default function DetectionResult({
   targetLangIso3,
 }: DetectionResultProps) {
   const { best } = detection
-  const targetLang   = getByIso3(targetLangIso3)
+  const targetLang    = getByIso3(targetLangIso3)
   const confidencePct = (best.confidence * 100).toFixed(1)
+
+  const [speaking, setSpeaking] = useState(false)
+
+  const chartData = detection.topK.map(d => ({
+    name: `${d.language.flag} ${d.language.name}`,
+    pct:  parseFloat((d.confidence * 100).toFixed(1)),
+  }))
 
   const showDiff = translation && translation.naive !== translation.meaningAware
   const diffed   = showDiff ? diffTokens(translation.naive, translation.meaningAware) : null
 
+  function toggleTts() {
+    if (typeof window === 'undefined' || !translation?.meaningAware) return
+    if (speaking) {
+      window.speechSynthesis.cancel()
+      setSpeaking(false)
+      return
+    }
+    const utt  = new SpeechSynthesisUtterance(translation.meaningAware)
+    utt.lang   = targetLang?.iso1 ?? 'en'
+    utt.onend  = () => setSpeaking(false)
+    utt.onerror = () => setSpeaking(false)
+    setSpeaking(true)
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(utt)
+  }
+
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-white/5 p-6">
 
-      {/* Detected language */}
+      {/* Detected language header */}
       <div className="flex items-center gap-3">
         <span className="text-4xl">{best.language.flag}</span>
         <div>
@@ -46,41 +73,75 @@ export default function DetectionResult({
         </div>
       </div>
 
-      {/* Confidence bar */}
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-        <div
-          className="h-full rounded-full transition-all duration-700"
-          style={{
-            width: `${confidencePct}%`,
-            background: 'linear-gradient(to right, #ff6b35, #f7931e)',
-          }}
-        />
-      </div>
+      {/* Recharts horizontal confidence chart */}
+      <ResponsiveContainer width="100%" height={chartData.length * 30}>
+        <BarChart
+          layout="vertical"
+          data={chartData}
+          margin={{ top: 0, right: 8, bottom: 0, left: 0 }}
+        >
+          <XAxis type="number" domain={[0, 100]} hide />
+          <YAxis
+            type="category"
+            dataKey="name"
+            width={148}
+            tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip
+            cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+            contentStyle={{
+              background: '#1a1a1a',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: '8px',
+              color: '#fff',
+              fontSize: '12px',
+            }}
+            formatter={(v) => [`${v}%`, 'Confidence']}
+          />
+          <Bar dataKey="pct" radius={[0, 4, 4, 0]} maxBarSize={14}>
+            {chartData.map((_, i) => (
+              <Cell
+                key={i}
+                fill={i === 0 ? '#ff6b35' : 'rgba(255,255,255,0.12)'}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
 
-      {/* Low-confidence warning (ML model on short text) */}
+      {/* Low-confidence warning */}
       {best.confidence < 0.4 && best.confidence < 0.96 && (
         <p className="text-xs rounded-lg px-3 py-1.5"
           style={{ background: 'rgba(255,165,0,0.1)', border: '1px solid rgba(255,165,0,0.25)', color: 'rgba(255,165,0,0.8)' }}>
-          Low confidence — try entering more text for a better result
+          Low confidence — enter more text for a better result
         </p>
       )}
 
-      {/* Runner-up hints */}
-      {detection.topK.length > 1 && (
-        <p className="text-xs text-white/40">
-          Also possible:{' '}
-          {detection.topK
-            .slice(1)
-            .map(d => `${d.language.flag} ${d.language.name} (${(d.confidence * 100).toFixed(1)}%)`)
-            .join(', ')}
-        </p>
-      )}
-
-      {/* Translation section */}
+      {/* Translation */}
       <div className="border-t border-white/10 pt-4 flex flex-col gap-3">
-        <p className="text-sm font-medium text-white/60">
-          Translation → {targetLang ? `${targetLang.flag} ${targetLang.name}` : targetLangIso3}
-        </p>
+
+        {/* Header with TTS button */}
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-white/60">
+            Translation → {targetLang ? `${targetLang.flag} ${targetLang.name}` : targetLangIso3}
+          </p>
+          {translation?.meaningAware && !isTranslating && (
+            <button
+              type="button"
+              onClick={toggleTts}
+              title={speaking ? 'Stop' : 'Listen to translation'}
+              className="rounded-lg p-1.5 transition hover:bg-white/10"
+              style={{ color: speaking ? '#ff6b35' : 'rgba(255,255,255,0.4)' }}
+            >
+              {speaking
+                ? <VolumeX className="h-4 w-4" />
+                : <Volume2 className="h-4 w-4" />
+              }
+            </button>
+          )}
+        </div>
 
         {isTranslating ? (
           <div className="flex items-center gap-2 text-white/40">
@@ -89,10 +150,8 @@ export default function DetectionResult({
           </div>
         ) : translation ? (
           showDiff ? (
-            /* Two-panel diff view */
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-
-              {/* Naive / word-by-word panel */}
+              {/* Naive */}
               <div className="flex flex-col gap-1.5 rounded-xl p-3"
                 style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-white/30">
@@ -100,24 +159,16 @@ export default function DetectionResult({
                 </p>
                 <p className="text-sm leading-relaxed text-white/60">{translation.naive}</p>
               </div>
-
-              {/* Meaning-aware panel with diff highlights */}
+              {/* Meaning-aware with diff */}
               <div className="flex flex-col gap-1.5 rounded-xl p-3"
                 style={{ background: 'rgba(255,107,53,0.07)', border: '1px solid rgba(255,107,53,0.2)' }}>
-                <p className="text-[11px] font-semibold uppercase tracking-wide"
-                  style={{ color: '#ff6b35' }}>
+                <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#ff6b35' }}>
                   Meaning-aware
                 </p>
                 <p className="text-sm leading-relaxed text-white">
                   {diffed!.map((tok, i) =>
                     tok.changed ? (
-                      <mark key={i}
-                        style={{
-                          background: 'rgba(255,107,53,0.25)',
-                          color: '#f7931e',
-                          borderRadius: '3px',
-                          padding: '0 2px',
-                        }}>
+                      <mark key={i} style={{ background: 'rgba(255,107,53,0.25)', color: '#f7931e', borderRadius: '3px', padding: '0 2px' }}>
                         {tok.text}
                       </mark>
                     ) : (
@@ -126,8 +177,6 @@ export default function DetectionResult({
                   )}
                 </p>
               </div>
-
-              {/* Legend */}
               <p className="sm:col-span-2 text-[11px] text-white/25">
                 <mark style={{ background: 'rgba(255,107,53,0.25)', color: '#f7931e', borderRadius: '3px', padding: '0 2px' }}>
                   highlighted
@@ -136,7 +185,6 @@ export default function DetectionResult({
               </p>
             </div>
           ) : (
-            /* Same-language or identical result — single panel */
             <p className="text-base leading-relaxed text-white">{translation.meaningAware}</p>
           )
         ) : (

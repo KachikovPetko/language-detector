@@ -1,6 +1,6 @@
 'use client'
 
-import { useReducer } from 'react'
+import { useEffect, useReducer, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import TextInput from '@/components/TextInput'
 import FileUpload from '@/components/FileUpload'
@@ -8,8 +8,11 @@ import LiveRecorder from '@/components/LiveRecorder'
 import ModeToggle from '@/components/ModeToggle'
 import TargetLanguagePicker from '@/components/TargetLanguagePicker'
 import DetectionResult from '@/components/DetectionResult'
-import type { AppState, InputMode, DetectApiResponse, TranslateApiResponse } from '@/lib/types'
+import HistoryPanel from '@/components/HistoryPanel'
+import type { AppState, InputMode, DetectApiResponse, TranslateApiResponse, HistoryItem } from '@/lib/types'
 import { getByIso1 } from '@/lib/languages'
+
+const HISTORY_KEY = 'lingualens_history'
 
 type Action =
   | { type: 'SET_MODE';    mode: InputMode }
@@ -33,7 +36,6 @@ const initial: AppState = {
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    // Clear results when switching mode, preserve target language
     case 'SET_MODE':    return { ...initial, mode: action.mode, targetLangIso3: state.targetLangIso3 }
     case 'SET_TARGET':  return { ...state, targetLangIso3: action.lang }
     case 'DETECTING':   return { ...state, isDetecting: true, error: null, detection: null, translation: null }
@@ -47,10 +49,30 @@ function reducer(state: AppState, action: Action): AppState {
 
 export default function Home() {
   const [state, dispatch] = useReducer(reducer, initial)
+  const [history, setHistory] = useState<HistoryItem[]>([])
 
-  // whisperLang: ISO 639-1 code returned by Groq Whisper (audio/live modes only).
-  // When present and recognised, it skips the ML model — Whisper is more accurate
-  // on short speech transcripts than TF-IDF trained on Wikipedia text.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HISTORY_KEY)
+      if (raw) setHistory(JSON.parse(raw) as HistoryItem[])
+    } catch { /* localStorage unavailable */ }
+  }, [])
+
+  function saveHistory(item: HistoryItem) {
+    setHistory(prev => {
+      const updated = [item, ...prev.filter(h => h.text !== item.text)].slice(0, 10)
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(updated)) } catch { /* ignore */ }
+      return updated
+    })
+  }
+
+  function clearHistory() {
+    setHistory([])
+    try { localStorage.removeItem(HISTORY_KEY) } catch { /* ignore */ }
+  }
+
+  // whisperLang: ISO 639-1 code from Groq Whisper (audio/live modes).
+  // Skips the ML model when present — more reliable on short speech transcripts.
   async function handleDetect(text: string, whisperLang?: string) {
     dispatch({ type: 'DETECTING' })
 
@@ -58,14 +80,12 @@ export default function Home() {
 
     const whisperLanguage = whisperLang ? getByIso1(whisperLang) : undefined
     if (whisperLanguage) {
-      // Whisper detected a language we support — use it directly
       detection = {
         best: { language: whisperLanguage, confidence: 0.97 },
         topK: [{ language: whisperLanguage, confidence: 0.97 }],
       }
       dispatch({ type: 'DETECTED', detection })
     } else {
-      // Text mode (or unsupported Whisper language) — run ML model
       try {
         const res = await fetch('/api/detect', {
           method: 'POST',
@@ -85,6 +105,14 @@ export default function Home() {
     const sourceLang = detection.best.language.iso3
     if (sourceLang === state.targetLangIso3) {
       dispatch({ type: 'TRANSLATED', translation: { naive: text, meaningAware: text } })
+      saveHistory({
+        id: Date.now().toString(),
+        text: text.slice(0, 200),
+        sourceLangIso3: sourceLang,
+        targetLangIso3: state.targetLangIso3,
+        meaningAware: text,
+        timestamp: Date.now(),
+      })
       return
     }
 
@@ -98,6 +126,14 @@ export default function Home() {
       const data = (await res.json()) as TranslateApiResponse & { error?: string }
       if (!res.ok) { dispatch({ type: 'ERROR', error: data.error ?? 'Translation failed' }); return }
       dispatch({ type: 'TRANSLATED', translation: data })
+      saveHistory({
+        id: Date.now().toString(),
+        text: text.slice(0, 200),
+        sourceLangIso3: sourceLang,
+        targetLangIso3: state.targetLangIso3,
+        meaningAware: data.meaningAware,
+        timestamp: Date.now(),
+      })
     } catch {
       dispatch({ type: 'ERROR', error: 'Network error during translation' })
     }
@@ -132,8 +168,8 @@ export default function Home() {
           <ModeToggle value={state.mode} onChange={mode => dispatch({ type: 'SET_MODE', mode })} />
           <TargetLanguagePicker value={state.targetLangIso3} onChange={lang => dispatch({ type: 'SET_TARGET', lang })} />
 
-          {state.mode === 'text'  && <TextInput   onSubmit={handleDetect} isLoading={isLoading} />}
-          {state.mode === 'audio' && <FileUpload  onSubmit={handleDetect} isLoading={isLoading} />}
+          {state.mode === 'text'  && <TextInput    onSubmit={handleDetect} isLoading={isLoading} />}
+          {state.mode === 'audio' && <FileUpload   onSubmit={handleDetect} isLoading={isLoading} />}
           {state.mode === 'live'  && <LiveRecorder onSubmit={handleDetect} isLoading={isLoading} />}
 
           {state.error && (
@@ -151,6 +187,12 @@ export default function Home() {
               targetLangIso3={state.targetLangIso3}
             />
           )}
+
+          <HistoryPanel
+            items={history}
+            onSelect={text => handleDetect(text)}
+            onClear={clearHistory}
+          />
         </div>
       </main>
 

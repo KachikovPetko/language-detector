@@ -30,6 +30,15 @@ export interface TranslateApiResponse {
   meaningAware: string
 }
 
+export interface HistoryItem {
+  id: string
+  text: string
+  sourceLangIso3: string
+  targetLangIso3: string
+  meaningAware: string
+  timestamp: number
+}
+
 export type InputMode = 'text' | 'audio' | 'live'
 
 export interface AppState {
