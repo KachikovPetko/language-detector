@@ -1,27 +1,44 @@
-# LinguaLens — Language Detector & Translator
+# LinguaLens — ML Language Detector & Translator
 
-A university ML project: detect the language of any text using a model **trained from scratch**, then translate it using Groq's Llama 3.1 70B.
+> University ML Project — custom-trained language identification model deployed as a full-stack web application.
 
-## Live Demo
+**Live demo:** https://language-detector-xi.vercel.app
 
-🚀 **[add URL after deploy]**
+---
+
+## What it does
+
+1. **Detects** the language of any text, audio file, or live microphone recording — using a model trained from scratch on WiLI-2018.
+2. **Translates** the detected text into one of 20 supported languages via Groq Llama 3.3 70B.
+3. **Compares** a naive word-by-word translation against a meaning-aware one, with word-level diff highlighting to show where context matters.
+
+---
 
 ## Features
 
-- **20 languages** — Arabic, Bulgarian, Czech, Chinese, German, Greek, English, French, Hindi, Italian, Japanese, Korean, Dutch, Polish, Portuguese, Romanian, Russian, Spanish, Turkish, Ukrainian
-- **Custom-trained ML model** — TF-IDF character n-grams + Logistic Regression, 98.86% accuracy on WiLI-2018
-- **Meaning-aware translation** via Groq Llama 3.1 70B
-- Phase 2+: Audio file upload (Groq Whisper), Live recording (Web Speech API), word-by-word vs meaning-aware comparison
+| Feature | Detail |
+|---|---|
+| Language detection | TF-IDF char n-grams + Logistic Regression, 98.86% accuracy |
+| 20 languages | Arabic, Bulgarian, Czech, Chinese, German, Greek, English, French, Hindi, Italian, Japanese, Korean, Dutch, Polish, Portuguese, Romanian, Russian, Spanish, Turkish, Ukrainian |
+| Text input | Type or paste; 8 sample idiom phrases to try |
+| Audio file | Upload MP3/WAV/M4A/OGG/FLAC/WebM → Groq Whisper transcription |
+| Live recording | Record mic → MediaRecorder + Groq Whisper → detect + translate |
+| Translation comparison | Word-by-word literal vs meaning-aware, orange diff highlights |
+| Confidence chart | Recharts horizontal bar chart for top-3 language scores |
+| TTS playback | Listen to the translated text via Web Speech Synthesis |
+| History | Last 10 translations persisted in localStorage |
 
-## Quick Start
+---
+
+## Quick start
 
 ```bash
 # 1. Install dependencies
 npm install
 
-# 2. Add your Groq API key
+# 2. Add your Groq API key  (get one free at console.groq.com)
 cp .env.example .env.local
-# Edit .env.local: GROQ_API_KEY=your_key_here
+# Edit .env.local:  GROQ_API_KEY=gsk_...
 
 # 3. Run dev server
 npm run dev
@@ -29,35 +46,83 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-> The app requires the trained ONNX model in `public/model/`. See [ml/README.md](ml/README.md) to train it.
+The trained model files are already committed to `public/model/`. To retrain from scratch see [ml/README.md](ml/README.md).
 
-## Project Structure
+---
+
+## Project structure
 
 ```
-ml/              Python training code (train.py, export_onnx.py)
-public/model/    Trained model files (detector.onnx, vocab.json, labels.json)
-app/             Next.js App Router pages and API routes
-components/      React UI components
-lib/             Shared TypeScript utilities
+app/
+  api/detect/       POST — language detection (ML model)
+  api/translate/    POST — dual translation (naive + meaning-aware)
+  api/transcribe/   POST — audio → text via Groq Whisper
+  page.tsx          Main app shell with useReducer state
+
+components/
+  TextInput.tsx     Textarea + sample phrase pills
+  FileUpload.tsx    Drag-drop audio upload + transcription
+  LiveRecorder.tsx  MediaRecorder + Whisper live recording
+  DetectionResult.tsx  Recharts chart, diff panels, TTS button
+  HistoryPanel.tsx  localStorage history (last 10)
+  ModeToggle.tsx    Text / Audio File / Live Recording switcher
+  TargetLanguagePicker.tsx  Dropdown for 20 target languages
+
+lib/
+  detector.ts       Pure-TypeScript TF-IDF + LogReg inference
+  groq.ts           Groq API client (Whisper + Llama)
+  languages.ts      ISO 639-1/3 language table
+  types.ts          Shared TypeScript types
+
+ml/
+  train.py          Download WiLI-2018, train sklearn pipeline
+  export_weights.py Export vocab.json + coef.bin + intercept.bin
+  export_onnx.py    Optional ONNX export (for reference)
+  results/          Confusion matrix, per-class metrics
+
+public/model/
+  vocab.json        TF-IDF vocabulary + IDF weights  (921 KB)
+  coef.bin          LogReg coefficients  (2.3 MB, float32)
+  intercept.bin     LogReg intercepts    (80 bytes)
+  labels.json       Class order (20 ISO 639-3 codes)
 ```
 
-## ML Model
+---
 
-- **Architecture**: `TfidfVectorizer(analyzer='char_wb', ngram_range=(2,4), max_features=30000)` + `LogisticRegression(lbfgs)`
-- **Dataset**: WiLI-2018 — 10,000 samples across 20 languages
-- **Accuracy**: 98.86% on held-out test set
-- **Export**: vocab+IDF as JSON, LogisticRegression as ONNX (skl2onnx does not support char-level analyzers directly)
-- See [ml/README.md](ml/README.md) for retrain instructions
+## ML model
+
+**Pipeline:** `TfidfVectorizer(analyzer='char_wb', ngram_range=(2,4), max_features=30000, sublinear_tf=True)` → `LogisticRegression(solver='lbfgs', C=5, max_iter=1000)`
+
+**Dataset:** WiLI-2018 (Thoma, 2018) — Wikipedia excerpts, 235 languages. We use 20 of them, 1 000 samples each for training, 333 for testing.
+
+**Accuracy:** 98.86% on the held-out test set.
+
+**Inference:** The model runs entirely in TypeScript with no native binaries. `lib/detector.ts` reimplements the `char_wb` TF-IDF transform and numerically-stable softmax in ~100 lines, loading weights from `public/model/` at cold-start.
+
+> `onnxruntime-node` was removed after testing: skl2onnx does not support char-level analyzers, and native binaries caused failures on Vercel's serverless Lambda runtime.
+
+---
 
 ## Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js 16, React 19, Tailwind CSS v4 |
-| ML Inference | onnxruntime-node + TypeScript TF-IDF impl |
-| Translation | Groq Llama 3.1 70B |
-| Transcription (Ph2) | Groq Whisper-large-v3 |
+| Framework | Next.js 16 (App Router), React 19, TypeScript strict |
+| Styling | Tailwind CSS v4 |
+| ML inference | Pure TypeScript (no native deps) |
+| Charts | Recharts 3 |
+| Icons | lucide-react |
+| Translation | Groq API — `llama-3.3-70b-versatile` |
+| Transcription | Groq API — `whisper-large-v3` (verbose_json) |
+| Deployment | Vercel free tier |
+
+---
 
 ## Deployment
 
-Vercel free tier. Set `GROQ_API_KEY` in Vercel → Settings → Environment Variables.
+1. Push to GitHub (model files are committed — they fit Vercel's 250 MB limit).
+2. Import repo on vercel.com.
+3. Add environment variable: `GROQ_API_KEY = gsk_...`
+4. Deploy.
+
+No build-time ML step — the model loads from `public/model/` at request time.
