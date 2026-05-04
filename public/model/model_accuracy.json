@@ -1,0 +1,5 @@
+{
+  "logistic_regression": 0.9883,
+  "linear_svc": 0.9901,
+  "naive_bayes": 0.9814
+}

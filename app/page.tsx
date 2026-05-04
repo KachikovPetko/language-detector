@@ -8,6 +8,7 @@ import LiveRecorder from '@/components/LiveRecorder'
 import ModeToggle from '@/components/ModeToggle'
 import TargetLanguagePicker from '@/components/TargetLanguagePicker'
 import DetectionResult from '@/components/DetectionResult'
+import ModelComparison from '@/components/ModelComparison'
 import HistoryPanel from '@/components/HistoryPanel'
 import type { AppState, InputMode, DetectApiResponse, TranslateApiResponse, HistoryItem } from '@/lib/types'
 import { getByIso1 } from '@/lib/languages'
@@ -188,6 +189,10 @@ export default function Home() {
             />
           )}
 
+          {state.detection?.models && (
+            <ModelComparison models={state.detection.models} />
+          )}
+
           <HistoryPanel
             items={history}
             onSelect={text => handleDetect(text)}
@@ -198,7 +203,7 @@ export default function Home() {
 
       <footer className="border-t py-4 text-center text-xs"
         style={{ borderColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.25)' }}>
-        University ML Project · TF-IDF char n-grams · Logistic Regression · 20 languages
+        University ML Project · TF-IDF char n-grams · LogReg · LinearSVC · Naive Bayes · 20 languages
       </footer>
     </div>
   )

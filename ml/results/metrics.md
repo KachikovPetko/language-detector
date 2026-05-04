@@ -1,14 +1,18 @@
-# Language Detection — Evaluation Results
+# Language Detection — Model Comparison
 
-**Test samples:** 10000  |  **Accuracy:** 98.86%
+| Model | Test Accuracy |
+|---|---|
+| Logistic Regression *(primary)* | **98.83%** |
+| Linear SVC | 99.01% |
+| Multinomial Naive Bayes | 98.14% |
 
-## Per-class Report
+## LogReg — Per-class Report
 
 ```
               precision    recall  f1-score   support
 
          ara       1.00      1.00      1.00       500
-         bul       1.00      0.97      0.98       500
+         bul       0.99      0.97      0.98       500
          ces       1.00      0.99      1.00       500
          cmn       0.98      0.99      0.99       500
          deu       0.96      0.98      0.97       500

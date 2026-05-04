@@ -67,10 +67,16 @@ export default function DetectionResult({
       {/* Detected language header */}
       <div className="flex items-center gap-3">
         <span className="text-4xl">{best.language.flag}</span>
-        <div>
+        <div className="flex-1">
           <p className="text-lg font-semibold text-white">{best.language.name}</p>
           <p className="text-sm text-white/50">{confidencePct}% confidence</p>
         </div>
+        <span
+          className="self-start rounded-lg px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
+          style={{ background: 'rgba(255,107,53,0.12)', color: '#ff6b35', border: '1px solid rgba(255,107,53,0.2)' }}
+        >
+          Logistic Regression
+        </span>
       </div>
 
       {/* Recharts horizontal confidence chart */}

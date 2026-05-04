@@ -14,9 +14,17 @@ export interface DetectApiRequest {
   text: string
 }
 
+export interface ModelPrediction {
+  model: 'logreg' | 'svc' | 'nb'
+  topLanguageIso3: string
+  confidence: number
+  accuracy: number
+}
+
 export interface DetectApiResponse {
   best: Detection
   topK: Detection[]
+  models?: ModelPrediction[]
 }
 
 export interface TranslateApiRequest {

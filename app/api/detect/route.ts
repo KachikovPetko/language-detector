@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { detectLanguage } from '@/lib/detector'
+import { detectWithAllModels } from '@/lib/detector'
 import type { DetectApiRequest, DetectApiResponse } from '@/lib/types'
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -19,11 +19,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const topK = detectLanguage(text, 3)
+    const { topK, models } = detectWithAllModels(text, 3)
     if (topK.length === 0) {
       return NextResponse.json({ error: 'Detection returned no results' }, { status: 500 })
     }
-    const response: DetectApiResponse = { best: topK[0], topK }
+    const response: DetectApiResponse = { best: topK[0], topK, models }
     return NextResponse.json(response)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Detection failed'

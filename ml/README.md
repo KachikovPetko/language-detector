@@ -41,14 +41,18 @@ python -X utf8 train.py
 python export_weights.py
 ```
 
-Exports three files consumed by `lib/detector.ts`:
+Exports files consumed by `lib/detector.ts`:
 
 | File | Size | Contents |
 |---|---|---|
 | `../public/model/vocab.json` | 921 KB | `{vocabulary: {ngram→index}, idf: [...]}` |
-| `../public/model/coef.bin` | 2.3 MB | LogReg coefficients — 20 × 30 000 float32, row-major |
-| `../public/model/intercept.bin` | 80 B | LogReg intercepts — 20 float32 |
 | `../public/model/labels.json` | 1 KB | Class order (ISO 639-3 codes) |
+| `../public/model/coef.bin` | 2.3 MB | LogReg coef — 20 × 30 000 float32 |
+| `../public/model/intercept.bin` | 80 B | LogReg intercept — 20 float32 |
+| `../public/model/svc_coef.bin` | 2.3 MB | LinearSVC coef — 20 × 30 000 float32 |
+| `../public/model/svc_intercept.bin` | 80 B | LinearSVC intercept — 20 float32 |
+| `../public/model/nb_log_prob.bin` | 2.3 MB | NB log P(feature\|class) — 20 × 30 000 float32 |
+| `../public/model/nb_class_log_prior.bin` | 80 B | NB log P(class) — 20 float32 |
 
 > **Why not ONNX at runtime?** skl2onnx does not support `analyzer='char_wb'`, so the vectorizer cannot be exported as a single ONNX graph. Additionally, `onnxruntime-node` uses native binaries that fail on Vercel's serverless Lambda. The pure-TypeScript inference in `lib/detector.ts` is a faithful reimplementation: same char_wb tokenisation, sublinear TF, smooth IDF, L2 norm, and softmax.
 
