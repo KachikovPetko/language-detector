@@ -1,366 +1,363 @@
-# LinguaLens: ML-Powered Language Detection and Translation
-### University ML Project Report
-**Discipline:** Selected Methods for Machine Learning
-**Specialty:** Artificial Intelligence
+# LinguaLens: ML-базирано Разпознаване на Език и Превод
+### Курсова работа
+**Дисциплина:** Избрани методи за машинно обучение
+**Специалност:** Изкуствен интелект
 
 ---
 
-## Abstract
+## Резюме
 
-This report presents LinguaLens, a web application that identifies the language of text, audio files, and live microphone recordings, then translates the detected text into a user-chosen target language. Three machine-learning classifiers are trained and compared: Logistic Regression (primary, 98.83% test accuracy), Linear SVC (99.01%), and Multinomial Naive Bayes (98.14%). All three share the same TF-IDF character n-gram feature space and are trained on the WiLI-2018 benchmark dataset covering 20 languages. The web interface runs all three models on every text query and displays their predictions side-by-side, showing each model's top language, confidence, and test accuracy. Model inference runs entirely in TypeScript with no native binaries, enabling serverless deployment. Translation is powered by Groq's Llama 3.3 70B model, producing both a naive word-by-word translation and a meaning-aware contextual translation for direct visual comparison.
+Настоящата курсова работа представя LinguaLens — уеб приложение, което идентифицира езика на текст, аудио файлове и запис от микрофон в реално време, след което превежда разпознатия текст на избран от потребителя целеви език. Обучени и сравнени са три класификатора за машинно обучение: Логистична регресия (основен модел, 98.83% точност), Линеен SVC (99.01%) и Мултиномиален Наивен Байес (98.14%). Трите модела споделят една и съща TF-IDF характерна пространство, изградено върху символни n-грами, и са обучени върху бенчмарк набора от данни WiLI-2018, покриващ 20 езика. Уеб интерфейсът изпълнява и трите модела при всяка текстова заявка и показва техните предсказания едно до друго — с предсказан език, увереност и точност на тест набора. Инференсът на моделите е реализиран изцяло на TypeScript без нативни бинарни файлове, което позволява serverless разгръщане. Преводът се осъществява чрез модела Llama 3.3 70B на Groq, като се генерират два варианта — буквален дума-по-дума превод и контекстно-осъзнат смислов превод — за директно визуално сравнение.
 
 ---
 
-## 3.1 Формулиране на проблема / Problem Formulation
+## 3.1 Формулиране на проблема
 
-### Task Description
+### Описание на задачата
 
-Automatic Language Identification (LID) is the task of determining which natural language a given text is written in. It is a **multi-class text classification** problem in the closed-set setting: given a fixed inventory of 20 candidate languages, the system must assign each input document to exactly one class.
+Автоматичното разпознаване на език (Language Identification, LID) е задача за определяне на естествения език, на който е написан даден текст. Това е **многокласова задача за класификация на текст** в затворено множество: при фиксиран набор от 20 езика системата трябва да присвои всеки входен документ точно на един клас.
 
-This project addresses LID as a classical supervised learning problem: given labelled text samples from 20 languages, train classifiers that generalise to unseen text. Three classifiers are trained and evaluated — Logistic Regression, Linear SVC, and Multinomial Naive Bayes — to allow direct comparison of discriminative and generative approaches on the same feature space.
+Проектът разглежда LID като класическа задача на обучение с учител: при наличие на маркирани текстови примери от 20 езика се обучават класификатори, които генерализират върху непознати текстове. Обучени и оценени са три класификатора — Логистична регресия, Линеен SVC и Мултиномиален Наивен Байес — за директно сравнение на дискриминативни и генеративни подходи върху едно и също характерно пространство.
 
-### Motivation
+### Мотивация
 
-LID is a prerequisite for virtually all downstream NLP tasks — translation, sentiment analysis, information retrieval, and content moderation all depend on knowing the document's language. The problem is well-studied and has clean benchmark datasets, making it ideal for comparing multiple ML approaches on equal footing.
+Разпознаването на език е предпоставка за почти всички следващи NLP задачи — превод, анализ на настроения, информационно търсене и модерация на съдържание. Проблемът е добре изследван и разполага с качествени бенчмарк набори от данни, което го прави идеален за сравнение на множество ML подходи при еднакви условия.
 
-The additional constraints that shaped this project:
+Допълнителни ограничения, оформили проекта:
 
-- **No pre-trained models** — all classifiers trained from scratch on raw text.
-- **Serverless deployment** — Vercel free tier: 4.5 MB function body limit, no native binaries allowed.
-- **Production quality** — working web application with three input modes (text, audio file, live microphone).
-- **Interpretability** — all three models exposed to the user with confidence and accuracy badges.
+- **Без предобучени модели** — всички класификатори са обучени от нулата върху суров текст.
+- **Serverless разгръщане** — Vercel free tier: лимит 4.5 MB за тяло на функцията, без нативни бинарни файлове.
+- **Продукционно качество** — работещо уеб приложение с три режима на въвеждане (текст, аудио файл, живо записване от микрофон).
+- **Интерпретируемост** — и трите модела са достъпни за потребителя с увереност и значки за точност.
 
-### Dataset
+### Набор от данни
 
-**WiLI-2018** (Wikipedia Language Identification Benchmark) [1] consists of short paragraphs extracted from Wikipedia across 235 languages. We use **20 languages** spanning diverse scripts and language families:
+**WiLI-2018** (Wikipedia Language Identification Benchmark) [1] се състои от кратки параграфи, извлечени от Уикипедия на 235 езика. Използвани са **20 езика**, обхващащи разнообразни писмени системи и езикови семейства:
 
-| Script | Languages |
+| Писменост | Езици |
 |---|---|
-| Latin | English, German, French, Spanish, Portuguese, Italian, Dutch, Polish, Czech, Romanian, Turkish |
-| Cyrillic | Russian, Bulgarian, Ukrainian |
-| Arabic | Arabic |
-| Devanagari | Hindi |
-| CJK | Chinese (Mandarin), Japanese, Korean |
-| Greek | Greek |
+| Латиница | Английски, Немски, Френски, Испански, Португалски, Италиански, Холандски, Полски, Чешки, Румънски, Турски |
+| Кирилица | Руски, Български, Украински |
+| Арабска | Арабски |
+| Деванагари | Хинди |
+| CJK | Китайски (мандарин), Японски, Корейски |
+| Гръцка | Гръцки |
 
-**Dataset split:** 1 000 samples per language for training (20 000 total), 333 per language for testing (6 660 total), following the original WiLI train/test split. Dataset source: https://zenodo.org/record/841984
+**Разделение:** 1 000 примера на език за обучение (20 000 общо), 333 на език за тестване (6 660 общо), следвайки оригиналното разделение на WiLI. Източник на данните: https://zenodo.org/record/841984
 
 ---
 
-## 3.2 Теоретична част / Theoretical Background
+## 3.2 Теоретична част
 
-### Feature Extraction — TF-IDF Character N-grams
+### Извличане на характеристики — TF-IDF символни n-грами
 
-The feature representation is built using scikit-learn's `TfidfVectorizer` with the `char_wb` analyser:
+Характерното представяне е изградено чрез `TfidfVectorizer` на scikit-learn с анализатор `char_wb`:
 
 ```python
 TfidfVectorizer(
-    analyzer    = 'char_wb',   # character n-grams with word-boundary padding
-    ngram_range = (2, 4),      # bi-, tri-, and tetra-grams
-    max_features = 30_000,     # top 30k n-grams by corpus frequency
-    sublinear_tf = True,       # replace TF with 1 + log(TF)
+    analyzer    = 'char_wb',   # символни n-грами с разграничаване на думи
+    ngram_range = (2, 4),      # би-, три- и тетраграми
+    max_features = 30_000,     # топ 30k n-грами по честота в корпуса
+    sublinear_tf = True,       # замяна на TF с 1 + log(TF)
 )
 ```
 
-**Why character n-grams?** Character-level features capture morphological patterns (suffixes, prefixes, inflections) without requiring a language-specific tokeniser. The `char_wb` analyser pads each token with spaces before extraction — for example, `"hello"` becomes `" hello "`, producing n-grams `" h"`, `" he"`, `"he"`, `"hel"`, `"ell"`, `"llo"`, `"lo "`, `"o "`. Word-boundary padding gives the model dedicated features for word-start and word-end sequences, which are highly discriminative across languages (e.g., German compound prefixes vs. Arabic root patterns).
+**Защо символни n-грами?** Символните характеристики улавят морфологични закономерности (наставки, представки, флексии) без да изискват езиково-специфичен токенизатор. Анализаторът `char_wb` добавя интервали около всяка дума преди извличането — например `"здравей"` става `" здравей "`, генерирайки n-грами като `" з"`, `" зд"`, `"зд"`, `"здр"` и т.н. Разграничаването на думи дава на модела отделни характеристики за началото и края на думата, които са силно дискриминативни между езиците.
 
-**Sublinear TF scaling** replaces raw term frequency with `1 + log(tf)`, reducing the dominance of high-frequency n-grams. **IDF smoothing** penalises n-grams common across all languages. The final feature vector is **L2-normalised** per document, making cosine similarity equivalent to dot product — important for both LogReg and SVC.
+**Sublinear TF мащабиране** заменя суровата честота с `1 + log(tf)`, намалявайки доминирането на често срещани n-грами. **IDF изглаждане** наказва n-грами, общи за всички езици. Крайният вектор на характеристиките е **L2-нормализиран** за всеки документ.
 
-After transformation, each document is a **30 000-dimensional sparse vector**. The vocabulary (n-gram → index mapping) and IDF weights are fit on the training set only, preventing data leakage.
+След трансформацията всеки документ е **30 000-мерен рядък вектор**. Речникът (n-грам → индекс) и IDF теглата се обучават само върху тренировъчния набор, предотвратявайки изтичане на данни.
 
-For Multinomial Naive Bayes, TF-IDF cannot be used directly: log-scaled and L2-normalised values can be negative or non-integer, violating the NB count assumption. A separate `CountVectorizer` with the identical vocabulary produces raw integer term counts for NB only.
+За Мултиномиалния Наивен Байес TF-IDF не може да се използва директно: log-мащабираните и L2-нормализирани стойности могат да са отрицателни или нецелочислени, нарушавайки предположението на NB за брой срещания. Отделен `CountVectorizer` с идентичен речник генерира сурови целочислени броения само за NB.
 
 ---
 
-### Classifier 1 — Logistic Regression (Primary)
+### Класификатор 1 — Логистична регресия (основен)
 
 ```python
 LogisticRegression(solver='lbfgs', C=5, max_iter=1000)
 ```
 
-**Mathematical formulation.** For a K-class problem, multinomial logistic regression models the posterior as:
+**Математическа формулировка.** При многокласов проблем с K класа мултиномиалната логистична регресия моделира апостериорното разпределение като:
 
 ```
 P(y = k | x) = exp(w_k · x + b_k) / Σ_j exp(w_j · x + b_j)
 ```
 
-where `w_k ∈ ℝ^d` is the weight vector for class k and `b_k` is the bias. Training minimises the cross-entropy loss with L2 regularisation:
+където `w_k ∈ ℝ^d` е вектор от тегла за клас k, а `b_k` е отместването. Обучението минимизира загубата на кръстосана ентропия с L2 регуляризация:
 
 ```
 L = -Σ log P(y_i | x_i) + (1/2C) Σ_k ||w_k||²
 ```
 
-The `lbfgs` solver uses a quasi-Newton method (Limited-memory BFGS) to optimise the full multinomial objective without reducing it to one-vs-rest. `C = 5` was selected by grid search over `C ∈ {0.1, 1, 5, 10}`.
+Решателят `lbfgs` използва квази-Нютонов метод (Limited-memory BFGS) за оптимизиране на пълната мултиномиална функция. `C = 5` е избран чрез мрежово търсене над `C ∈ {0.1, 1, 5, 10}`.
 
-**Advantages:** Calibrated probabilities via softmax; interpretable weights; single-pass multi-class; handles class imbalance well.
+**Предимства:** Калибрирани вероятности чрез softmax; интерпретируеми тегла; еднопроходен многокласов подход.
 
-**Limitations:** Assumes linear decision boundaries in feature space; slower to train than SVC on very large vocabularies.
+**Ограничения:** Предполага линейна граница на решение в характерното пространство; по-бавно обучение от SVC при много голям речник.
 
 ---
 
-### Classifier 2 — Linear SVC
+### Класификатор 2 — Линеен SVC
 
 ```python
 LinearSVC(C=1.0, max_iter=2000, dual=True)
 ```
 
-**Mathematical formulation.** Linear SVC solves a one-vs-rest (OvR) multi-class problem. For each class k it finds:
+**Математическа формулировка.** Линейният SVC решава многокласов проблем по стратегията „един срещу всички" (OvR). За всеки клас k се търси:
 
 ```
 min_{w,b}  (1/2)||w||² + C Σ_i max(0, 1 - y_i(w·x_i + b))
 ```
 
-This is the hinge loss with L2 regularisation. The decision boundary maximises the margin between the nearest training points (support vectors) of each class pair. For prediction, class scores are the raw decision function values:
+Това е загубата на панта (hinge loss) с L2 регуляризация. Границата на решение максимизира марджина между най-близките тренировъчни точки (опорни вектори) на всяка двойка класове. За предсказване се използват суровите стойности на функцията на решение:
 
 ```
 score_k(x) = w_k · x + b_k
 ```
 
-The class with the highest score wins. To display pseudo-probabilities in the UI, scores are passed through softmax (not officially calibrated, but useful for comparison).
+Класът с най-висок резултат печели. За показване на псевдо-вероятности в интерфейса резултатите се подават през softmax.
 
-**Advantages:** Highest empirical accuracy on high-dimensional sparse data; maximises margin; fast at inference.
+**Предимства:** Най-висока емпирична точност при многомерни редки данни; максимизира марджина; бърз при инференс.
 
-**Limitations:** No native probability calibration; OvR strategy can produce inconsistent multi-class scores; less interpretable than LogReg.
+**Ограничения:** Без естествена калибрация на вероятности; OvR стратегията може да даде непоследователни многокласови резултати.
 
 ---
 
-### Classifier 3 — Multinomial Naive Bayes
+### Класификатор 3 — Мултиномиален Наивен Байес
 
 ```python
 MultinomialNB(alpha=0.1)
 ```
 
-**Mathematical formulation.** NB applies Bayes' theorem with the conditional independence assumption:
+**Математическа формулировка.** Наивният Байес прилага теоремата на Байес с предположение за условна независимост:
 
 ```
 P(y = k | x) ∝ P(y = k) · Π_i P(x_i | y = k)^{count_i}
 ```
 
-Taking logarithms (for numerical stability):
+Взимайки логаритми (за числова стабилност):
 
 ```
 log P(y = k | x) = log P(y = k) + Σ_i count_i · log P(x_i | y = k)
 ```
 
-The per-feature log-likelihoods are estimated with Laplace smoothing (`alpha = 0.1`):
+Log-вероятностите се оценяват с изглаждане на Лаплас (`alpha = 0.1`):
 
 ```
-log P(x_i | y = k) = log( (count(x_i, k) + alpha) / (Σ_j count(x_j, k) + alpha·d) )
+log P(x_i | y = k) = log( (брой(x_i, k) + alpha) / (Σ_j брой(x_j, k) + alpha·d) )
 ```
 
-At inference, log-space scores are converted to display probabilities via softmax.
+При инференс log-пространствените резултати се преобразуват в вероятности за показване чрез softmax.
 
-**Advantages:** Extremely fast training; strong baseline despite the independence assumption; interpretable as a generative model.
+**Предимства:** Изключително бързо обучение; силна базова линия въпреки предположението за независимост; интерпретируем като генеративен модел.
 
-**Limitations:** The independence assumption is violated (adjacent n-grams are highly correlated); cannot use TF-IDF features; generally lower accuracy than discriminative models.
+**Ограничения:** Предположението за независимост е нарушено (съседните n-грами са силно корелирани); не може да използва TF-IDF характеристики; като цяло по-ниска точност от дискриминативните модели.
 
 ---
 
-### TypeScript Inference Reimplementation
+### TypeScript реализация на инференса
 
-Because `skl2onnx` does not support the `char_wb` analyser and `onnxruntime-node` (native binaries) fails on Vercel's serverless Lambda, all three models' weights are exported as plain **float32 binary files** and the full inference pipeline is reimplemented in TypeScript (`lib/detector.ts`).
+Тъй като `skl2onnx` не поддържа анализатора `char_wb`, а `onnxruntime-node` (нативни бинарни файлове) не работи на Vercel serverless Lambda, теглата и на трите модела са експортирани като обикновени **float32 бинарни файлове** и целият инференс pipeline е реализиран на TypeScript (`lib/detector.ts`).
 
-**Exported files:**
+**Експортирани файлове:**
 
-| File | Size | Contents |
+| Файл | Размер | Съдържание |
 |---|---|---|
-| `vocab.json` | 921 KB | `{vocabulary: {ngram→index}, idf: [...]}` |
-| `coef.bin` | 2.3 MB | LogReg `w` — float32[20 × 30 000] |
-| `intercept.bin` | 80 B | LogReg `b` — float32[20] |
-| `svc_coef.bin` | 2.3 MB | SVC `w` — float32[20 × 30 000] |
-| `svc_intercept.bin` | 80 B | SVC `b` — float32[20] |
+| `vocab.json` | 921 KB | `{vocabulary: {n-грам→индекс}, idf: [...]}` |
+| `coef.bin` | 2.3 MB | LogReg тегла — float32[20 × 30 000] |
+| `intercept.bin` | 80 B | LogReg отместване — float32[20] |
+| `svc_coef.bin` | 2.3 MB | SVC тегла — float32[20 × 30 000] |
+| `svc_intercept.bin` | 80 B | SVC отместване — float32[20] |
 | `nb_log_prob.bin` | 2.3 MB | NB `log P(x_i \| k)` — float32[20 × 30 000] |
 | `nb_class_log_prior.bin` | 80 B | NB `log P(k)` — float32[20] |
 
-**TypeScript inference steps (LogReg / SVC — TF-IDF path):**
-1. Lowercase and whitespace-tokenise the input.
-2. Pad each token with spaces; slide windows of width 2–4 for n-grams.
-3. Count raw occurrences per n-gram (vocabulary lookup).
-4. Apply sublinear TF: `tf' = 1 + log(count)` for non-zero entries.
-5. Multiply by stored IDF weights.
-6. L2-normalise the feature vector.
-7. Compute `score[k] = dot(w[k], features) + b[k]` for all 20 classes.
-8. Apply numerically-stable softmax: `prob[k] = exp(score[k] − max) / Σ exp(score[i] − max)`.
+**Стъпки на инференса (LogReg / SVC — TF-IDF път):**
+1. Малки букви и токенизация по интервали.
+2. Добавяне на интервали около всяка дума; плъзгащ прозорец с ширина 2–4 за n-грами.
+3. Броене на срещанията на n-грами (търсене в речника).
+4. Прилагане на sublinear TF: `tf' = 1 + log(брой)` за ненулеви записи.
+5. Умножение по съхранените IDF тегла.
+6. L2-нормализация на вектора.
+7. Изчисляване на `score[k] = dot(w[k], features) + b[k]` за 20 класа.
+8. Numerically-stable softmax: `prob[k] = exp(score[k] − max) / Σ exp(score[i] − max)`.
 
-**TypeScript inference steps (NB — raw count path):**
-1–3. Same tokenisation and raw count extraction (no TF-IDF).
-4. Compute `score[k] = log_prior[k] + Σ count[i] · log_prob[k, i]`.
-5. Apply softmax to convert log-space scores to display probabilities.
-
-All weights are cached in module scope after the first Lambda cold-start — subsequent requests in the same instance pay no I/O cost.
+**Стъпки на инференса (NB — суров брой):**
+1–3. Същата токенизация и броене (без TF-IDF стъпка).
+4. `score[k] = log_prior[k] + Σ count[i] · log_prob[k, i]`.
+5. Softmax за преобразуване на log-пространствените резултати в вероятности.
 
 ---
 
-## 3.3 Аналитична част / Analytical Comparison
+## 3.3 Аналитична част
 
-### Comparison with Alternative Approaches
+### Сравнение с алтернативни подходи
 
-| Approach | Accuracy (20-lang) | Training time | Model size | Deployment |
+| Подход | Точност (20 езика) | Обучение | Размер | Разгръщане |
 |---|---|---|---|---|
-| **TF-IDF + LogReg** *(this project)* | **98.83%** | ~30 s CPU | 2.3 MB | Serverless ✓ |
-| **TF-IDF + LinearSVC** *(this project)* | **99.01%** | ~20 s CPU | 2.3 MB | Serverless ✓ |
-| **TF-IDF + NaiveBayes** *(this project)* | **98.14%** | ~5 s CPU | 2.3 MB | Serverless ✓ |
-| fastText (Joulin et al., 2017) [3] | ~99%+ | minutes | 900 MB | Needs binary |
-| langdetect (Nakatani, 2010) | ~95% | pre-trained | 2 MB | Java port |
-| CLD2/CLD3 (Google) | ~99% | pre-trained | 1–20 MB | Native binary |
-| Fine-tuned BERT | ~99.5%+ | hours + GPU | 400 MB+ | Too large |
+| **TF-IDF + LogReg** *(този проект)* | **98.83%** | ~30 с CPU | 2.3 MB | Serverless ✓ |
+| **TF-IDF + LinearSVC** *(този проект)* | **99.01%** | ~20 с CPU | 2.3 MB | Serverless ✓ |
+| **TF-IDF + Наивен Байес** *(този проект)* | **98.14%** | ~5 с CPU | 2.3 MB | Serverless ✓ |
+| fastText (Joulin et al., 2017) [3] | ~99%+ | минути | 900 MB | Изисква бинарен файл |
+| langdetect (Nakatani, 2010) | ~95% | предобучен | 2 MB | Java порт |
+| CLD2/CLD3 (Google) | ~99% | предобучен | 1–20 MB | Нативен бинарен файл |
+| Fine-tuned BERT | ~99.5%+ | часове + GPU | 400 MB+ | Прекалено голям |
 
-**Key insight:** Classical TF-IDF classifiers achieve near-identical accuracy to much larger and more complex systems on the closed-set 20-language task. The performance gap between our best model (SVC, 99.01%) and fine-tuned BERT (~99.5%) is less than 0.5 pp — a negligible difference that does not justify the 170× increase in model size or the GPU requirement.
+**Ключово наблюдение:** Класическите TF-IDF класификатори постигат почти идентична точност с много по-големи и сложни системи при затворения 20-езиков сценарий. Разликата между нашия най-добър модел (SVC, 99.01%) и fine-tuned BERT (~99.5%) е под 0.5 pp — пренебрежима разлика, която не оправдава 170-кратното увеличение на размера или изискването за GPU.
 
-### Why SVC > LogReg > Naive Bayes
+### Защо SVC > LogReg > Наивен Байес
 
-**SVC outperforms LogReg (99.01% vs 98.83%)** because in high-dimensional sparse feature spaces, maximising the margin provides a stronger inductive bias than minimising log-loss. The margin objective explicitly ignores well-classified points and focuses on the decision boundary, which is particularly effective when most features are zero.
+**SVC надминава LogReg (99.01% срещу 98.83%)** защото при многомерни редки пространства максимизирането на марджина осигурява по-силна индуктивна пристрастност от минимизирането на log-loss. Целевата функция на марджина игнорира добре класифицираните точки и се фокусира върху границата на решение.
 
-**LogReg outperforms NB (98.83% vs 98.14%)** because logistic regression is a discriminative model that directly optimises the posterior P(y|x), whereas NB is generative and must additionally model P(x|y). Discriminative models consistently outperform generative ones when training data is sufficient [2]. Furthermore, NB cannot exploit the richer TF-IDF representation — raw counts carry less information than sublinear-scaled, IDF-weighted, L2-normalised vectors.
+**LogReg надминава Наивния Байес (98.83% срещу 98.14%)** защото логистичната регресия е дискриминативен модел, директно оптимизиращ апостериорното P(y|x), докато NB е генеративен и трябва допълнително да моделира P(x|y). Дискриминативните модели системно надминават генеративните при достатъчно тренировъчни данни [2]. Освен това NB не може да използва по-богатото TF-IDF представяне.
 
-### When Would the Method Fail?
+### При какви условия методът би се провалил
 
-1. **Short texts (< 50 characters):** Fewer than ~20 n-gram types are extracted. The feature vector is nearly empty and all classifiers lose discriminative power. Observed in practice: a 3-word German phrase yields only 17% confidence. *Solution: minimum-length guard + confidence threshold.*
+1. **Кратки текстове (< 50 символа):** Извличат се по-малко от ~20 типа n-грами. Векторът е почти празен и всички класификатори губят дискриминативна сила. Наблюдавано на практика: немска фраза от 3 думи дава само 17% увереност. *Решение: минимална дължина + праг на увереност.*
 
-2. **Code-mixed or multilingual input:** The models predict a single dominant class. A sentence mixing English and Arabic will be misclassified or produce artificially low confidence. None of the three classifiers can handle mixed-language input. *Solution: sliding-window detection or a separate code-switching model.*
+2. **Смесен или многоезичен вход:** Моделите предсказват един доминиращ клас. Изречение, смесващо английски и арабски, ще бъде неправилно класифицирано или ще има ниска увереност. *Решение: плъзгащ прозорец или отделен модел за code-switching.*
 
-3. **Languages outside the 20-class set:** Any text in an unseen language (e.g., Finnish, Vietnamese) will receive a spurious prediction. There is no rejection or "unknown" option. *Solution: a threshold-based reject option or open-set recognition.*
+3. **Езици извън 20-те класа:** Всеки текст на непознат език (напр. финландски, виетнамски) ще получи произволно предсказание без опция за отхвърляне. *Решение: reject option на базата на праг или open-set разпознаване.*
 
-4. **Domain shift:** All three models are trained on Wikipedia text (formal, encyclopaedic prose). Short conversational speech transcripts, social media text, or technical jargon may exhibit different n-gram distributions. This is why audio mode uses Whisper's own LID output rather than our models.
+4. **Domain shift:** Трите модела са обучени върху Уикипедия (формална проза). Кратки разговорни транскрипции на реч, социални мрежи или технически жаргон може да имат различно n-грам разпределение. Затова аудио режимът използва собствения LID изход на Whisper вместо нашите модели.
 
-5. **Script ambiguity:** Serbian and Croatian share the Latin script and highly similar morphology; Norwegian and Danish are near-identical in written form. These confusions persist across all three classifiers because the discriminative signal is genuinely weak at the n-gram level.
+5. **Скриптова неяснота:** Сръбски и хърватски споделят латиница с почти идентична морфология; норвежки и датски са практически неразличими в писмена форма. Тези смешения се запазват и при трите класификатора, тъй като дискриминативният сигнал е слаб на ниво n-грами.
 
 ---
 
-## 3.4 Практическа част / Practical Implementation
+## 3.4 Практическа част
 
-### System Architecture
+### Системна архитектура
 
 ```
-Browser
+Браузър
   │
-  ├─ Text input ─────────────────────────► POST /api/detect
+  ├─ Текстов вход ────────────────────────► POST /api/detect
   │                                             │ detectWithAllModels() — TypeScript
-  │                                             │ ┌─ charWbTfidf() → LogReg → probs
-  │                                             │ ├─ charWbTfidf() → SVC   → pseudo-probs
-  │                                             │ └─ charWbCounts() → NB   → probs
-  │                                             │ returns { best, topK, models[3] }
+  │                                             │ ┌─ charWbTfidf() → LogReg → вероятности
+  │                                             │ ├─ charWbTfidf() → SVC   → псевдо-вер.
+  │                                             │ └─ charWbCounts() → NB   → вероятности
+  │                                             │ връща { best, topK, models[3] }
   │                                             ▼
-  ├─ Audio / Live ──► POST /api/transcribe  Groq Whisper (verbose_json)
-  │                        │ returns { text, detectedLang (ISO 639-1) }
+  ├─ Аудио / Живо ──► POST /api/transcribe  Groq Whisper (verbose_json)
+  │                        │ връща { text, detectedLang (ISO 639-1) }
   │                        ▼
   │              POST /api/translate ─────► Groq Llama 3.3 70B
-  │                        │ returns { naive, meaningAware }
+  │                        │ връща { naive, meaningAware }
   │                        ▼
-  └─────────────────── UI components
+  └─────────────────── UI компоненти
                           ├─ DetectionResult
-                          │    ├─ "Logistic Regression" badge (primary model)
-                          │    ├─ Recharts top-3 confidence bar chart
-                          │    ├─ Word-by-word vs meaning-aware diff panels
-                          │    └─ TTS playback (Web Speech Synthesis API)
-                          └─ ModelComparison (text mode only)
-                               ├─ LogReg card  — flag, confidence, 98.83% acc badge
-                               ├─ SVC card     — flag, confidence, 99.01% acc badge
-                               └─ NB card      — flag, confidence, 98.14% acc badge
+                          │    ├─ Значка "Logistic Regression" (основен модел)
+                          │    ├─ Recharts хоризонтална лентова диаграма (топ-3)
+                          │    ├─ Буквален vs смислов превод с цветни разлики
+                          │    └─ TTS озвучаване (Web Speech Synthesis API)
+                          └─ ModelComparison (само текстов режим)
+                               ├─ LogReg карта  — език, увереност, значка 98.83%
+                               ├─ SVC карта     — език, увереност, значка 99.01%
+                               └─ NB карта      — език, увереност, значка 98.14%
 ```
 
-### Training Pipeline
+### Тренировъчен pipeline
 
 ```python
-# 1. Load WiLI-2018 (Zenodo) — 20 000 train / 6 660 test samples
+# 1. Зареждане на WiLI-2018 (Zenodo) — 20 000 обучение / 6 660 тест
 x_train, y_train, x_test, y_test = load_dataset()
 
-# 2. Shared TF-IDF feature extraction
+# 2. Обща TF-IDF характеристична матрица
 tfidf = TfidfVectorizer(analyzer='char_wb', ngram_range=(2,4),
                         max_features=30_000, sublinear_tf=True, min_df=2)
 X_train_tfidf = tfidf.fit_transform(x_train)
 
-# 3. Raw counts for NB (same vocabulary)
+# 3. Сурови броения за NB (същият речник)
 count_vec = CountVectorizer(vocabulary=tfidf.vocabulary_,
                             analyzer='char_wb', ngram_range=(2,4))
 X_train_counts = count_vec.transform(x_train)
 
-# 4. Train all three classifiers
+# 4. Обучение на трите класификатора
 lr  = LogisticRegression(solver='lbfgs', C=5.0, max_iter=1000).fit(X_train_tfidf, y_train)
 svc = LinearSVC(C=1.0, max_iter=2000).fit(X_train_tfidf, y_train)
 nb  = MultinomialNB(alpha=0.1).fit(X_train_counts, y_train)
 
-# 5. Export weights as float32 binary files
+# 5. Експорт на тегла като float32 бинарни файлове
 lr.coef_.astype(np.float32).tofile('coef.bin')
 svc.coef_.astype(np.float32).tofile('svc_coef.bin')
 nb.feature_log_prob_.astype(np.float32).tofile('nb_log_prob.bin')
-# ... intercepts and class priors similarly
 ```
 
-### Web Application Features
+### Функции на уеб приложението
 
-| Input mode | Description |
+| Режим на вход | Описание |
 |---|---|
-| Text | Type or paste text; 8 sample idiom phrases across scripts |
-| Audio file | Upload MP3/WAV/M4A/OGG/FLAC/WebM → Groq Whisper → detect + translate |
-| Live recording | MediaRecorder API → Groq Whisper → detect + translate |
+| Текст | Въвеждане или поставяне на текст; 8 примерни фрази на различни езици |
+| Аудио файл | Качване на MP3/WAV/M4A/OGG/FLAC/WebM → Groq Whisper → разпознаване + превод |
+| Живо записване | MediaRecorder API → Groq Whisper → разпознаване + превод |
 
-| UI feature | Description |
+| UI функция | Описание |
 |---|---|
-| Model comparison | 3 side-by-side cards: model name, predicted language, confidence, accuracy badge |
-| Confidence chart | Recharts horizontal bar chart for top-3 LogReg predictions |
-| Translation diff | Word-by-word literal vs meaning-aware, orange highlights on changed words |
-| TTS playback | Web Speech Synthesis API reads the translation aloud |
-| History | Last 10 detections persisted in localStorage |
+| Сравнение на модели | 3 карти едно до друго: модел, предсказан език, увереност, значка за точност |
+| Диаграма на увереността | Recharts хоризонтална лентова диаграма за топ-3 LogReg предсказания |
+| Разлики в превода | Буквален срещу смислов превод с оранжево маркиране на различните думи |
+| TTS озвучаване | Web Speech Synthesis API озвучава превода |
+| История | Последните 10 разпознавания, запазени в localStorage |
 
-**Live demo:** https://language-detector-xi.vercel.app
-**Source code:** https://github.com/KachikovPetko/language-detector
+**Демонстрация (live demo):** https://language-detector-xi.vercel.app
+**Изходен код:** https://github.com/KachikovPetko/language-detector
 
 ---
 
-## 3.5 Експерименти и резултати / Experiments and Results
+## 3.5 Експерименти и резултати
 
-### Metrics
+### Използвани метрики
 
-- **Accuracy** — fraction of correctly classified test samples (primary metric; classes are balanced at 333 each so accuracy = macro-average recall).
-- **F1 score** — per-class harmonic mean of precision and recall; averaged across all 20 classes.
-- **Confusion matrix** — 20×20 matrix showing the full pattern of misclassifications for the primary model (LogReg).
+- **Точност (Accuracy)** — дял на правилно класифицираните тестови примери (основна метрика; класовете са балансирани по 333 примера, така че accuracy = macro-average recall).
+- **F1 мярка** — хармонично средно на прецизност и пълнота за всеки клас; осреднено по 20-те класа.
+- **Матрица на объркването (Confusion matrix)** — матрица 20×20, показваща пълната картина на грешните класификации за основния модел (LogReg).
 
-### Results
+### Резултати
 
-| Model | Test Accuracy | Notes |
+| Модел | Тестова точност | Бележки |
 |---|---|---|
-| Logistic Regression *(primary)* | **98.83%** | Calibrated probabilities; used for translation |
-| Linear SVC | **99.01%** | Highest accuracy; pseudo-probs via softmax |
-| Multinomial Naive Bayes | **98.14%** | Generative; raw counts; weakest of the three |
+| Логистична регресия *(основен)* | **98.83%** | Калибрирани вероятности; използван за превод |
+| Линеен SVC | **99.01%** | Най-висока точност; псевдо-вероятности чрез softmax |
+| Мултиномиален Наивен Байес | **98.14%** | Генеративен; сурови броения; най-слаб от трите |
 
-**All 20 languages achieve F1 > 0.97** under Logistic Regression. The confusion matrix (`ml/results/confusion_matrix.png`) shows the most frequent misclassifications:
+**Всички 20 езика постигат F1 > 0.97** при Логистична регресия. Матрицата на объркването (`ml/results/confusion_matrix.png`) показва най-честите грешки:
 
-- **Ukrainian ↔ Russian** (~1% error) — nearly identical Cyrillic morphology; shared roots and affixes produce nearly identical n-gram distributions.
-- **Portuguese ↔ Spanish** (~0.5% error) — both are Ibero-Romance with similar Latin morphology and many cognates.
-- **Bulgarian ↔ Russian** (~0.3% error) — both Cyrillic, though Bulgarian morphology is more analytic.
+- **Украински ↔ Руски** (~1% грешка) — почти идентична кирилска морфология; споделени корени и наставки.
+- **Португалски ↔ Испански** (~0.5% грешка) — и двата са иберо-романски с подобна латинска морфология и много общи думи.
+- **Български ↔ Руски** (~0.3% грешка) — и двата на кирилица, въпреки че българската морфология е по-аналитична.
 
-### Interpretation
+### Анализ и интерпретация
 
-The 0.18 pp gap between SVC and LogReg is consistent with theoretical predictions: in high-dimensional sparse spaces, margin-based classifiers have a structural advantage over log-loss minimisers. The 0.69 pp gap between LogReg and NB confirms that the conditional independence assumption carries a measurable but modest cost when n-gram co-occurrence patterns are weak enough.
+Разликата от 0.18 pp между SVC и LogReg е в съответствие с теоретичните прогнози: при многомерни редки пространства класификаторите, базирани на марджин, имат структурно предимство пред минимизаторите на log-loss. Разликата от 0.69 pp между LogReg и NB потвърждава, че предположението за условна независимост носи измерима, но умерена цена.
 
-The near-perfect accuracy (98–99%) across all three models on a balanced 20-class test set confirms that character n-gram TF-IDF is an extremely strong feature representation for written language identification — strong enough that classifier choice matters far less than feature design.
+Почти перфектната точност (98–99%) и при трите модела върху балансиран тест набор с 20 класа потвърждава, че символните n-грами с TF-IDF са изключително силно характерно представяне за разпознаване на писмен език — достатъчно силно, че изборът на класификатор има много по-малко значение от дизайна на характеристиките.
 
-### Limitations of the Experiment
+### Ограничения на експеримента
 
-- **Domain:** WiLI-2018 is Wikipedia text (formal prose). Generalisation to social media, speech transcripts, or legal text is unknown and likely worse.
-- **Text length:** Test samples are 300–500 characters. Short-text performance (< 50 chars) degrades sharply for all three models.
-- **SVC calibration:** The pseudo-probabilities for SVC are not calibrated (Platt scaling was not applied), so absolute confidence values are not directly comparable to LogReg.
-- **NB count features:** NB uses raw counts while LogReg/SVC use TF-IDF — this is a necessary difference (NB requires non-negative integers), but it means NB operates on strictly less informative features, confounding classifier vs. feature comparisons.
-
----
-
-## 3.6 Заключение / Conclusion
-
-LinguaLens demonstrates that traditional ML classifiers trained on character n-gram TF-IDF features can achieve near-state-of-the-art language identification accuracy (98–99%) on a 20-language closed-set benchmark, while fitting the constraints of a free-tier serverless deployment with no native binaries.
-
-The three-model comparison yields clear practical conclusions:
-- **Linear SVC** achieves the highest accuracy (99.01%) and is the best choice when only a point prediction is needed.
-- **Logistic Regression** is the best choice when calibrated probabilities are required (e.g., for confidence display or downstream probabilistic reasoning), at a cost of 0.18 pp accuracy.
-- **Multinomial Naive Bayes** is a strong generative baseline (98.14%) that trains in seconds, but is consistently outperformed by both discriminative models when sufficient data is available.
-
-The web application integrates all three models with LLM-based translation, audio transcription via Groq Whisper, and a visual diff comparison between naive and meaning-aware translation — demonstrating how a classical ML pipeline can serve as the core of a production-quality application.
-
-**Future directions:** open-set rejection for unseen languages; confidence calibration for short texts; streaming translation; evaluation on non-Wikipedia domains; expansion to the full WiLI-2018 235-language set.
+- **Домейн:** WiLI-2018 съдържа текстове от Уикипедия (формална проза). Генерализацията към социални мрежи, транскрипции на реч или юридически текст е неизвестна и вероятно по-слаба.
+- **Дължина на текста:** Тестовите примери са 300–500 символа. Производителността при кратки текстове (< 50 символа) рязко спада при всички три модела.
+- **Калибрация на SVC:** Псевдо-вероятностите за SVC не са калибрирани (Platt scaling не е приложен), така че абсолютните стойности на увереността не са пряко сравними с тези на LogReg.
+- **NB характеристики:** NB използва сурови броения, докато LogReg/SVC използват TF-IDF — необходима разлика (NB изисква неотрицателни цели числа), но означава, че NB работи с по-малко информативни характеристики, което усложнява директното сравнение на класификаторите.
 
 ---
 
-## References
+## 3.6 Заключение
+
+LinguaLens демонстрира, че традиционните ML класификатори, обучени върху TF-IDF символни n-грами, могат да постигнат близка до референтната точност за разпознаване на език (98–99%) върху 20-езиков бенчмарк, като същевременно отговарят на ограниченията на безплатно serverless разгръщане без нативни бинарни файлове.
+
+Сравнението на трите модела дава ясни практически изводи:
+- **Линейният SVC** постига най-висока точност (99.01%) и е най-добрият избор, когато се изисква само точково предсказание.
+- **Логистичната регресия** е най-добрият избор, когато са необходими калибрирани вероятности (напр. за показване на увереност или вероятностни разсъждения), с цената на 0.18 pp точност.
+- **Мултиномиалният Наивен Байес** е силна генеративна базова линия (98.14%), която се обучава за секунди, но системно е надминавана от двата дискриминативни модела при достатъчно данни.
+
+Уеб приложението интегрира трите модела с LLM-базиран превод, транскрипция на аудио чрез Groq Whisper и визуално сравнение между буквален и смислов превод — демонстрирайки как класически ML pipeline може да служи като ядро на продукционно качество приложение.
+
+**Бъдещи насоки:** отхвърляне на непознати езици (open-set recognition); калибрация на увереността при кратки текстове; поточен (streaming) превод; оценка на извън-Wikipedia домейни; разширяване до пълния WiLI-2018 набор от 235 езика.
+
+---
+
+## Използвана литература
 
 [1] Thoma, M. (2018). *The WiLI benchmark dataset for written language identification*. arXiv:1801.07779.
 
